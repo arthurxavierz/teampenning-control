@@ -1,0 +1,30 @@
+{
+  "name": "team-penning-manager-mvp",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "node e2e/flow.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "0.468.0",
+    "qrcode.react": "4.2.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.28.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "4.3.3",
+    "playwright-core": "1.49.1",
+    "vite": "5.4.10",
+    "vitest": "2.1.9"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
