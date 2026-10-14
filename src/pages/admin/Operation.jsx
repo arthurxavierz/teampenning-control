@@ -120,7 +120,7 @@ export default function Operation() {
         actions={done[0] && <Button variant="ghost" onClick={() => setUndoing(done[0])}><Undo2 size={15} /> Desfazer último</Button>}
       />
       <div className="progress"><i style={{ width: `${progress}%` }} /></div>
-      {!session.operator && <div className="notice notice-warn">Informe seu nome no campo Operador, no menu lateral. Cada lançamento fica assinado.</div>}
+      {!session.operator && !session.admin && <div className="notice notice-warn">Informe seu nome no campo Operador, no menu lateral. Cada lançamento fica assinado.</div>}
       {!event.schedule?.publishedAt && <div className="notice notice-info">A montagem ainda não foi publicada. Os lançamentos funcionam, mas competidores não veem a ordem.</div>}
 
       <div className="op-grid">
