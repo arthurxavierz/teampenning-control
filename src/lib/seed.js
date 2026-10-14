@@ -4,7 +4,7 @@ import { buildFinalRuns } from './ranking.js'
 import { buildSchedule } from './schedule.js'
 import { addDays, makeCpf, seededRandom, todayIso } from './utils.js'
 
-export const STATE_VERSION = 2
+export const STATE_VERSION = 3
 
 // Base de demonstração. As datas acompanham o dia em que o protótipo é aberto
 // para que as inscrições do evento ativo estejam sempre dentro do prazo.
@@ -80,6 +80,7 @@ function addTrios(state, eventId, cats, trios, baseDate) {
         id: `mem_${regId}_${j + 1}`,
         registrationId: regId,
         competitorId: comp.id,
+        position: j,
         confirmationStatus: accepted,
         paymentStatus: paid ? 'paid' : 'pending',
         handicapSnapshot: comp.handicap,
@@ -147,7 +148,7 @@ export function createSeed(today = todayIso()) {
     auditLog: [],
     contep: { year: Number(today.slice(0, 4)), importedAt: `${today.slice(0, 4)}-01-08T14:00:00`, records: [], imports: [] }
   }
-  state.contep.records = state.competitors.map((c) => ({ contepCode: c.contepCode, name: c.name, cpf: c.cpf, handicap: c.handicap }))
+  state.contep.records = state.competitors.map((c) => ({ id: `ctp_${c.id}`, contepCode: c.contepCode, name: c.name, cpf: c.cpf, handicap: c.handicap }))
 
   // Etapa anterior, encerrada e homologada: alimenta histórico e relatórios.
   const pastDate = addDays(today, -35)

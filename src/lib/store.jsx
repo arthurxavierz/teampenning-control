@@ -1,51 +1,96 @@
-import { useSyncExternalStore } from 'react'
-import { contepRecordFor } from './contepBase.js'
-import { defaultCategories, defaultEventSettings } from './defaults.js'
-import { allocatePayments } from './finance.js'
-import { buildFinalRuns, qualifyingComplete } from './ranking.js'
-import { isActiveRegistration, membersOf, recomputeRegistrationStatus, resolveMembers, validateRegistration } from './rules.js'
-import { buildSchedule, eventRuns, nextRunNumber } from './schedule.js'
+import { useEffect, useSyncExternalStore } from 'react'
+import { isSupabase } from './config.js'
+import { core, fail } from './core.js'
 import { createSeed, STATE_VERSION } from './seed.js'
-import { cleanCpf, isValidCpf, newSeed, nowIso, parseTime, slugify, uid } from './utils.js'
+import { supabase } from './supabase.js'
+import { cleanCpf, nowIso, uid } from './utils.js'
+import * as cloud from './cloud/client.js'
+import { portalCall } from './cloud/portal.js'
+import { diffState } from './cloud/schema.js'
+
+// Estado do app e ações.
+//
+// Modo local (sem banco configurado): tudo mora no localStorage, como no
+// protótipo. Serve para demonstração e para testes.
+//
+// Modo nuvem (VITE_DATA_MODE=supabase): a organização logada trabalha com o
+// estado completo e cada ação vira operações no banco (ver cloud/client.js).
+// O público vê só o que o banco libera, e o competidor fala com a função do
+// servidor. As telas são as mesmas nos dois modos.
 
 const KEY = 'team-penning-manager-v2'
 const OPERATOR_KEY = 'tp-operator'
 const COMPETITOR_KEY = 'tp-competitor'
+const PORTAL_KEY = 'tp-portal-token'
 
-// Protótipo sem backend: o estado inteiro mora no localStorage e as abas do
-// mesmo navegador conversam pelo evento "storage". Em produção, cada ação
-// abaixo vira uma chamada ao Supabase com a mesma assinatura.
-function load() {
+export const mode = isSupabase ? 'cloud' : 'local'
+
+export const emptyState = () => ({
+  version: STATE_VERSION,
+  organizations: [],
+  events: [],
+  categories: [],
+  competitors: [],
+  registrations: [],
+  registrationMembers: [],
+  payments: [],
+  runs: [],
+  auditLog: [],
+  contep: { year: new Date().getFullYear(), importedAt: null, records: [], imports: [] }
+})
+
+// Estado salvo por versões anteriores do protótipo ganha os campos novos.
+function upgrade(saved) {
+  if (saved?.version === STATE_VERSION) return saved
+  return null
+}
+
+function loadLocal() {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY))
-    if (saved?.version === STATE_VERSION) return saved
+    const saved = upgrade(JSON.parse(localStorage?.getItem(KEY)))
+    if (saved) return saved
   } catch {}
   return createSeed()
 }
 
-function readSession() {
-  let operator = ''
-  let competitorId = ''
-  try { operator = localStorage.getItem(OPERATOR_KEY) || '' } catch {}
-  try { competitorId = sessionStorage.getItem(COMPETITOR_KEY) || '' } catch {}
-  return { operator, competitorId }
-}
+// Acesso protegido ao armazenamento do navegador (pode não existir nos testes
+// ou estar bloqueado em janela anônima).
+const localStorage = globalThis.localStorage ?? null
+const sessionStorage = globalThis.sessionStorage ?? null
+const safeGet = (store, key) => { try { return store?.getItem(key) || '' } catch { return '' } }
+const safeSet = (store, key, value) => { try { value ? store.setItem(key, value) : store.removeItem(key) } catch {} }
 
-let state = load()
-let session = readSession()
-let snapshot = { state, session }
+let state = mode === 'local' ? loadLocal() : emptyState()
+let session = {
+  operator: safeGet(localStorage, OPERATOR_KEY),
+  competitorId: mode === 'local' ? safeGet(sessionStorage, COMPETITOR_KEY) : '',
+  portalToken: mode === 'cloud' ? safeGet(sessionStorage, PORTAL_KEY) : '',
+  admin: null
+}
+let status = {
+  mode,
+  ready: mode === 'local',
+  scope: 'public',
+  error: '',
+  authChecked: mode === 'local',
+  sync: { pending: 0, online: true, live: false, error: '' }
+}
+let snapshot = { state, session, status }
 const listeners = new Set()
 
 function emit() {
-  snapshot = { state, session }
+  snapshot = { state, session, status }
   listeners.forEach((l) => l())
 }
+const setStatus = (patch) => { status = { ...status, ...patch }; emit() }
+const setSession = (patch) => { session = { ...session, ...patch }; emit() }
 
 function persist() {
-  try { localStorage.setItem(KEY, JSON.stringify(state)) } catch {}
+  if (mode !== 'local') return
+  try { localStorage?.setItem(KEY, JSON.stringify(state)) } catch {}
 }
 
-if (typeof window !== 'undefined') {
+if (typeof window !== 'undefined' && mode === 'local') {
   window.addEventListener('storage', (e) => {
     if (e.key !== KEY || !e.newValue) return
     try {
@@ -55,529 +100,342 @@ if (typeof window !== 'undefined') {
   })
 }
 
-const actor = () => session.operator || 'Organização'
+const ctx = { actor: () => session.operator || session.admin?.displayName || 'Organização' }
 
-function log(draft, eventId, action, summary, detail) {
-  draft.auditLog.unshift({ id: uid('log'), at: nowIso(), eventId, actor: actor(), action, summary, detail })
-  if (draft.auditLog.length > 2000) draft.auditLog.length = 2000
-}
-
-// Toda escrita passa por aqui: copia o estado, aplica, grava e avisa as telas.
-// Se a função devolver { ok: false }, nada é gravado.
+// Toda escrita da organização passa por aqui: copia o estado, aplica, grava e
+// avisa as telas. Se a ação devolver { ok: false }, nada é gravado.
 function mutate(fn) {
+  if (mode === 'cloud' && !session.admin) return fail('Entre na área da organização para fazer alterações.')
   const draft = structuredClone(state)
   const result = fn(draft) || { ok: true }
   if (result.ok === false) return result
+  if (mode === 'cloud') cloud.enqueue(diffState(state, draft))
   state = draft
   persist()
   emit()
   return { ok: true, ...result }
 }
 
-const fail = (...errors) => ({ ok: false, errors })
-const findEvent = (draft, id) => draft.events.find((e) => e.id === id)
+export const actions = {}
+Object.keys(core).forEach((name) => {
+  actions[name] = (...args) => mutate((draft) => core[name](draft, ctx, ...args))
+})
 
-function competitorsInRegistration(draft, registrationId) {
-  return membersOf(draft, registrationId).map((m) => m.competitorId)
+// Ações do competidor no modo nuvem: vão para a função do servidor, que
+// confere quem é e aplica as mesmas regras.
+const portalActions = {
+  async createRegistration(payload) {
+    const res = await portalCall('register', { payload })
+    if (res.ok) await refreshPublic()
+    return res
+  },
+  async respondInvite(memberId, value) {
+    const res = await portalCall('respond', { token: session.portalToken, memberId, status: value })
+    if (res.ok) await refreshPortal(res)
+    return res
+  },
+  async reportPayment(payload) {
+    const res = await portalCall('report', { token: session.portalToken, eventId: payload.eventId, amount: payload.amount, note: payload.note })
+    if (res.ok) await refreshPortal(res)
+    return res
+  }
+}
+if (mode === 'cloud') {
+  Object.entries(portalActions).forEach(([name, fn]) => {
+    const local = actions[name]
+    actions[name] = (...args) => (session.admin ? local(...args) : fn(...args))
+  })
 }
 
-function reallocate(draft, eventId, competitorIds) {
-  new Set(competitorIds).forEach((id) => allocatePayments(draft, eventId, id))
-}
-
-export const actions = {
+Object.assign(actions, {
   reset() {
+    if (mode !== 'local') return fail('A demonstração só existe no modo local.')
     state = createSeed()
     persist()
     emit()
+    return { ok: true }
   },
 
-  // Backup do protótipo. Como tudo mora no navegador, é o jeito de levar os
-  // dados de um computador para outro até o Supabase entrar.
+  // Backup completo em JSON. No modo nuvem serve como cópia de segurança.
   exportBackup() {
     return JSON.stringify({ app: 'achilles-team-penning', exportedAt: nowIso(), state }, null, 2)
   },
 
+  // Local: substitui tudo. Nuvem: soma ao banco (nada é apagado), útil para
+  // levar ao banco o que foi feito no protótipo.
   importBackup(text) {
     let data
     try { data = JSON.parse(text) } catch { return fail('O arquivo não é um backup válido.') }
     const next = data?.state
     if (data?.app !== 'achilles-team-penning' || !next) return fail('Este arquivo não é um backup do Team Penning.')
-    if (next.version !== STATE_VERSION) return fail('O backup é de outra versão do sistema.')
     const required = ['events', 'categories', 'competitors', 'registrations', 'registrationMembers', 'payments', 'runs', 'auditLog', 'contep']
     if (required.some((k) => !next[k])) return fail('O backup está incompleto.')
-    state = next
-    persist()
-    emit()
-    return { ok: true, events: next.events.length }
+    next.contep.records = (next.contep.records || []).map((r) => (r.id ? r : { ...r, id: uid('ctp') }))
+    next.contep.imports = next.contep.imports || []
+    if (mode === 'local') {
+      state = { ...next, version: STATE_VERSION }
+      persist()
+      emit()
+      return { ok: true, events: next.events.length }
+    }
+    return mutate((draft) => {
+      const merge = (list, incoming) => {
+        const byId = new Map(list.map((x, i) => [x.id, i]))
+        incoming.forEach((item) => {
+          if (byId.has(item.id)) list[byId.get(item.id)] = item
+          else list.push(item)
+        })
+      }
+      ;['events', 'categories', 'competitors', 'registrations', 'registrationMembers', 'payments', 'runs', 'auditLog'].forEach((k) => merge(draft[k], next[k]))
+      merge(draft.contep.records, next.contep.records)
+      merge(draft.contep.imports, next.contep.imports)
+      return { events: next.events.length }
+    })
   },
 
   setOperator(name) {
-    session = { ...session, operator: name.trim() }
-    try { localStorage.setItem(OPERATOR_KEY, session.operator) } catch {}
-    emit()
+    setSession({ operator: name.trim() })
+    safeSet(localStorage, OPERATOR_KEY, session.operator)
   },
 
-  // Acesso do competidor no protótipo: CPF mais os quatro últimos dígitos do
-  // telefone cadastrado. Na versão Supabase vira login com código por SMS ou
-  // e-mail.
+  // Competidor. Local: CPF mais os quatro últimos dígitos do celular. Nuvem: a
+  // mesma conferência é feita no servidor, que devolve um token assinado.
   loginCompetitor(cpf, phoneEnd) {
-    const c = state.competitors.find((x) => cleanCpf(x.cpf) === cleanCpf(cpf))
+    if (mode === 'cloud') return loginPortal(cpf, phoneEnd)
+    const c = state.competitors.find((x) => cleanCpf(x.cpf) && cleanCpf(x.cpf) === cleanCpf(cpf))
     if (!c) return fail('CPF não encontrado. Faça uma inscrição ou confira o número.')
     if (String(c.phone || '').replace(/\D/g, '').slice(-4) !== String(phoneEnd).replace(/\D/g, '')) {
       return fail('Os dígitos do telefone não conferem com o cadastro.')
     }
-    session = { ...session, competitorId: c.id }
-    try { sessionStorage.setItem(COMPETITOR_KEY, c.id) } catch {}
-    emit()
+    setSession({ competitorId: c.id })
+    safeSet(sessionStorage, COMPETITOR_KEY, c.id)
     return { ok: true }
   },
 
   logoutCompetitor() {
-    session = { ...session, competitorId: '' }
-    try { sessionStorage.removeItem(COMPETITOR_KEY) } catch {}
-    emit()
+    setSession({ competitorId: '', portalToken: '' })
+    safeSet(sessionStorage, COMPETITOR_KEY, '')
+    safeSet(sessionStorage, PORTAL_KEY, '')
+    portalSlice = null
+    if (mode === 'cloud') rebuildPublic()
   },
 
-  // Eventos
-  createEvent(payload, templateEventId) {
-    return mutate((draft) => {
-      const id = uid('evt')
-      const template = templateEventId && findEvent(draft, templateEventId)
-      let slug = slugify(payload.slug || payload.name)
-      if (draft.events.some((e) => e.slug === slug)) slug = `${slug}-${draft.events.length + 1}`
-      const settings = template
-        ? structuredClone({
-            limits: template.limits, terms: template.terms, cattle: template.cattle, occurrences: template.occurrences,
-            arena: { ...template.arena, intermission: false },
-            schedule: { ...template.schedule, seed: null, generatedAt: null, publishedAt: null },
-            pix: template.pix, registrationPrice: template.registrationPrice, venue: template.venue, city: template.city, state: template.state
-          })
-        : {}
-      const event = {
-        organizationId: 'org_1',
-        ...defaultEventSettings(),
-        pix: { key: '', name: '', city: '' },
-        ...settings,
-        ...payload,
-        homologated: {},
-        id,
-        slug,
-        active: false,
-        status: 'draft'
-      }
-      draft.events.push(event)
-      const cats = template
-        ? draft.categories.filter((c) => c.eventId === template.id).map((c) => ({ ...c, id: uid('cat'), eventId: id }))
-        : defaultCategories(id)
-      draft.categories.push(...cats)
-      log(draft, id, 'event.create', template ? `Evento criado a partir de ${template.name}.` : 'Evento criado.')
-      return { eventId: id }
-    })
+  // Organização (modo nuvem)
+  async signIn(email, password) {
+    if (mode !== 'cloud') return fail('O login só existe com o banco ligado.')
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+    if (error) return fail(error.message === 'Invalid login credentials' ? 'E-mail ou senha incorretos.' : error.message)
+    return startSession()
   },
 
-  updateEvent(id, patch, summary = 'Configurações do evento atualizadas.') {
-    return mutate((draft) => {
-      const event = findEvent(draft, id)
-      if (!event) return fail('Evento não encontrado.')
-      if (patch.slug !== undefined) {
-        patch.slug = slugify(patch.slug)
-        if (!patch.slug) return fail('O endereço do evento não pode ficar vazio.')
-        if (draft.events.some((e) => e.id !== id && e.slug === patch.slug)) return fail('Já existe outro evento com este endereço.')
-      }
-      Object.assign(event, patch)
-      log(draft, id, 'event.update', summary)
-    })
+  async signOut() {
+    if (mode !== 'cloud') return { ok: true }
+    if (cloud.queueSize() > 0 && !window.confirm('Há lançamentos que ainda não subiram para o banco. Sair agora pode perdê-los. Sair mesmo assim?')) return { ok: false, errors: [] }
+    await supabase.auth.signOut()
+    cloud.stopAdmin()
+    setSession({ admin: null })
+    setStatus({ scope: 'public', ready: false })
+    await startPublic()
+    return { ok: true }
   },
 
-  setActiveEvent(id) {
-    return mutate((draft) => {
-      draft.events.forEach((e) => { e.active = e.id === id })
-      log(draft, id, 'event.activate', 'Evento definido como ativo.')
-    })
+  async changePassword(password) {
+    if (String(password).length < 8) return fail('Use pelo menos 8 caracteres.')
+    const { error } = await supabase.auth.updateUser({ password })
+    return error ? fail(error.message) : { ok: true }
   },
 
-  saveCategory(eventId, category) {
-    return mutate((draft) => {
-      if (!String(category.name || '').trim()) return fail('Dê um nome para a categoria.')
-      const numbers = ['maxHandicap', 'qualifyingRuns', 'bestTimesCount', 'finalistsCount', 'finalRuns']
-      const clean = { ...category }
-      numbers.forEach((k) => { clean[k] = Number(clean[k] ?? 0) })
-      if (clean.bestTimesCount > clean.qualifyingRuns) return fail('Os tempos considerados não podem passar da quantidade de passadas.')
-      if (clean.qualifyingRuns < 1) return fail('A categoria precisa de pelo menos uma passada.')
-      const existing = draft.categories.find((c) => c.id === clean.id)
-      if (existing) Object.assign(existing, clean)
-      else draft.categories.push({ ...clean, id: uid('cat'), eventId })
-      log(draft, eventId, 'category.save', `Categoria ${clean.name} ${existing ? 'atualizada' : 'criada'}.`)
-    })
+  async reloadFromServer() {
+    if (mode !== 'cloud') return { ok: true }
+    try {
+      if (session.admin) await cloud.reloadAdmin()
+      else await refreshPublic()
+      return { ok: true }
+    } catch (err) {
+      return fail(err.message)
+    }
   },
 
-  removeCategory(categoryId) {
-    return mutate((draft) => {
-      const cat = draft.categories.find((c) => c.id === categoryId)
-      if (!cat) return fail('Categoria não encontrada.')
-      if (draft.registrations.some((r) => r.categoryId === categoryId)) return fail('Esta categoria já tem inscrições e não pode ser removida.')
-      draft.categories = draft.categories.filter((c) => c.id !== categoryId)
-      log(draft, cat.eventId, 'category.remove', `Categoria ${cat.name} removida.`)
-    })
+  // Equipe da organização: e-mails autorizados a entrar no painel.
+  async listTeam() {
+    if (!session.admin) return []
+    const { data } = await supabase.from('organization_members').select('*').eq('organization_id', session.admin.organizationId).order('created_at')
+    return data || []
   },
 
-  updateCompetitor(id, patch, reason) {
-    return mutate((draft) => {
-      const c = draft.competitors.find((x) => x.id === id)
-      if (!c) return fail('Competidor não encontrado.')
-      const before = { handicap: c.handicap, contepCode: c.contepCode, name: c.name, phone: c.phone }
-      if (patch.handicap !== undefined && Number(patch.handicap) !== Number(c.handicap)) {
-        if (!String(reason || '').trim()) return fail('Informe o motivo da alteração de handicap.')
-        patch = { ...patch, handicap: Number(patch.handicap), handicapSource: 'admin' }
-      }
-      Object.assign(c, patch)
-      log(draft, null, 'competitor.update', `Cadastro de ${c.name} alterado.${reason ? ` Motivo: ${reason}` : ''}`, { before, after: patch })
-    })
+  async addTeamMember(email, role = 'admin', displayName = '') {
+    if (!session.admin) return fail('Sem permissão.')
+    const clean = String(email).trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(clean)) return fail('E-mail inválido.')
+    const { error } = await supabase.from('organization_members').insert({ organization_id: session.admin.organizationId, email: clean, role, display_name: displayName || null })
+    return error ? fail(error.code === '23505' ? 'Este e-mail já está na equipe.' : error.message) : { ok: true }
   },
 
-  // Inscrições
-  createRegistration({ eventId, categoryId, people, creatorIndex = 0, termsAccepted }) {
-    return mutate((draft) => {
-      const errors = validateRegistration(draft, { eventId, categoryId, people, termsAccepted })
-      if (errors.length) return fail(...errors)
-      const event = findEvent(draft, eventId)
-      const resolved = resolveMembers(draft, people).map((p) => {
-        if (p.known) return p.known
-        const record = contepRecordFor(draft, { cpf: p.cpf, contepCode: p.contepCode })
-        const name = String(p.name || record?.name || '').trim()
-        const competitor = {
-          id: uid('cmp'),
-          name,
-          nickname: name.split(' ')[0],
-          cpf: p.cpf,
-          phone: String(p.phone || '').replace(/\D/g, ''),
-          contepCode: record?.contepCode || String(p.contepCode || '').trim().toUpperCase(),
-          handicap: record ? Number(record.handicap) : Number(p.handicap || 0),
-          handicapSource: record ? 'contep' : 'declared'
-        }
-        draft.competitors.push(competitor)
-        return competitor
-      })
-      const at = nowIso()
-      const reg = {
-        id: uid('reg'),
-        eventId,
-        categoryId,
-        createdByCompetitorId: resolved[creatorIndex]?.id || resolved[0].id,
-        status: 'awaiting_confirmation',
-        createdAt: at,
-        termsAcceptedAt: termsAccepted ? at : null
-      }
-      draft.registrations.push(reg)
-      resolved.forEach((c, i) => {
-        draft.registrationMembers.push({
-          id: uid('mem'),
-          registrationId: reg.id,
-          competitorId: c.id,
-          confirmationStatus: i === creatorIndex ? 'accepted' : 'pending',
-          paymentStatus: 'pending',
-          handicapSnapshot: Number(c.handicap || 0),
-          price: Number(event.registrationPrice || 0),
-          respondedAt: i === creatorIndex ? at : null
-        })
-      })
-      reallocate(draft, eventId, [resolved[creatorIndex]?.id])
-      recomputeRegistrationStatus(draft, reg.id)
-      log(draft, eventId, 'registration.create', `Trio criado por ${resolved[creatorIndex]?.name}.`, { registrationId: reg.id })
-      return { registrationId: reg.id }
-    })
-  },
-
-  respondInvite(memberId, status) {
-    return mutate((draft) => {
-      const member = draft.registrationMembers.find((m) => m.id === memberId)
-      if (!member) return fail('Convite não encontrado.')
-      if (member.confirmationStatus !== 'pending') return fail('Este convite já foi respondido.')
-      const reg = draft.registrations.find((r) => r.id === member.registrationId)
-      if (!isActiveRegistration(reg)) return fail('Este trio não está mais ativo.')
-      member.confirmationStatus = status
-      member.respondedAt = nowIso()
-      recomputeRegistrationStatus(draft, reg.id)
-      reallocate(draft, reg.eventId, competitorsInRegistration(draft, reg.id))
-      const name = draft.competitors.find((c) => c.id === member.competitorId)?.name
-      log(draft, reg.eventId, 'registration.respond', `${name} ${status === 'accepted' ? 'aceitou' : 'recusou'} o convite.`, { registrationId: reg.id })
-    })
-  },
-
-  cancelRegistration(registrationId, reason) {
-    return mutate((draft) => {
-      const reg = draft.registrations.find((r) => r.id === registrationId)
-      if (!reg) return fail('Inscrição não encontrada.')
-      if (!String(reason || '').trim()) return fail('Informe o motivo do cancelamento.')
-      if (draft.runs.some((r) => r.registrationId === registrationId && r.status === 'done')) return fail('O trio já correu. Cancele pela correção de resultados.')
-      reg.status = 'cancelled'
-      reg.cancelledAt = nowIso()
-      reg.cancelReason = reason
-      draft.runs = draft.runs.filter((r) => !(r.registrationId === registrationId && r.status === 'pending'))
-      reallocate(draft, reg.eventId, competitorsInRegistration(draft, reg.id))
-      log(draft, reg.eventId, 'registration.cancel', `Trio cancelado. Motivo: ${reason}`, { registrationId })
-    })
-  },
-
-  // Troca um integrante. O novo entra aguardando aceite e o trio volta a
-  // depender da confirmação dele. Quem saiu recebe de volta o valor como
-  // crédito no evento.
-  substituteMember(memberId, person, reason) {
-    return mutate((draft) => {
-      const member = draft.registrationMembers.find((m) => m.id === memberId)
-      if (!member) return fail('Integrante não encontrado.')
-      const reg = draft.registrations.find((r) => r.id === member.registrationId)
-      if (reg.status === 'cancelled') return fail('O trio está cancelado.')
-      if (draft.runs.some((r) => r.registrationId === reg.id && r.status === 'done')) return fail('O trio já correu e não pode trocar integrante.')
-      if (!String(reason || '').trim()) return fail('Informe o motivo da substituição.')
-      const cpf = cleanCpf(person.cpf)
-      let comp = draft.competitors.find((c) => cleanCpf(c.cpf) === cpf)
-      if (!comp) {
-        if (!isValidCpf(cpf)) return fail('CPF inválido.')
-        if (!String(person.name || '').trim()) return fail('Informe o nome do novo integrante.')
-        const record = contepRecordFor(draft, { cpf, contepCode: person.contepCode })
-        comp = {
-          id: uid('cmp'), name: person.name.trim(), nickname: person.name.trim().split(' ')[0], cpf,
-          phone: String(person.phone || '').replace(/\D/g, ''), contepCode: record?.contepCode || person.contepCode || '',
-          handicap: record ? Number(record.handicap) : Number(person.handicap || 0), handicapSource: record ? 'contep' : 'declared'
-        }
-        draft.competitors.push(comp)
-      }
-      const others = membersOf(draft, reg.id).filter((m) => m.id !== memberId)
-      if (others.some((m) => m.competitorId === comp.id)) return fail('Este competidor já está no trio.')
-      const cat = draft.categories.find((c) => c.id === reg.categoryId)
-      const sum = others.reduce((s, m) => s + Number(m.handicapSnapshot || 0), 0) + Number(comp.handicap || 0)
-      if (sum > Number(cat.maxHandicap)) return fail(`Com a troca, a soma do trio fica ${sum}. A categoria permite até ${cat.maxHandicap}.`)
-      const outgoing = member.competitorId
-      const outName = draft.competitors.find((c) => c.id === outgoing)?.name
-      member.competitorId = comp.id
-      member.confirmationStatus = 'pending'
-      member.paymentStatus = 'pending'
-      member.handicapSnapshot = Number(comp.handicap || 0)
-      member.respondedAt = null
-      if (reg.status === 'declined') reg.status = 'awaiting_confirmation'
-      recomputeRegistrationStatus(draft, reg.id)
-      reallocate(draft, reg.eventId, [outgoing, comp.id])
-      log(draft, reg.eventId, 'registration.substitute', `${outName} substituído por ${comp.name}. Motivo: ${reason}`, { registrationId: reg.id })
-    })
-  },
-
-  // Financeiro
-  reportPayment({ eventId, competitorId, amount, note }) {
-    return mutate((draft) => {
-      if (!(Number(amount) > 0)) return fail('Informe o valor pago.')
-      const existing = draft.payments.find((p) => p.eventId === eventId && p.competitorId === competitorId && p.status === 'reported')
-      if (existing) Object.assign(existing, { amount: Number(amount), note: note || existing.note, createdAt: nowIso() })
-      else draft.payments.push({ id: uid('pay'), eventId, competitorId, amount: Number(amount), method: 'pix', status: 'reported', note: note || '', createdAt: nowIso() })
-      const name = draft.competitors.find((c) => c.id === competitorId)?.name
-      log(draft, eventId, 'payment.report', `${name} informou pagamento.`)
-    })
-  },
-
-  confirmPayment({ eventId, competitorId, amount, paymentId, method = 'pix' }) {
-    return mutate((draft) => {
-      const value = Number(amount)
-      if (!(value > 0)) return fail('Informe o valor recebido.')
-      const at = nowIso()
-      const reported = paymentId && draft.payments.find((p) => p.id === paymentId)
-      if (reported) Object.assign(reported, { amount: value, status: 'confirmed', confirmedAt: at, confirmedBy: actor() })
-      else draft.payments.push({ id: uid('pay'), eventId, competitorId, amount: value, method, status: 'confirmed', createdAt: at, confirmedAt: at, confirmedBy: actor() })
-      allocatePayments(draft, eventId, competitorId)
-      const name = draft.competitors.find((c) => c.id === competitorId)?.name
-      log(draft, eventId, 'payment.confirm', `Recebimento de R$ ${value.toFixed(2).replace('.', ',')} confirmado para ${name}.`)
-    })
-  },
-
-  rejectPayment(paymentId, reason) {
-    return mutate((draft) => {
-      const p = draft.payments.find((x) => x.id === paymentId)
-      if (!p) return fail('Pagamento não encontrado.')
-      if (!String(reason || '').trim()) return fail('Informe o motivo.')
-      Object.assign(p, { status: 'rejected', rejectedAt: nowIso(), rejectedBy: actor(), rejectReason: reason })
-      allocatePayments(draft, p.eventId, p.competitorId)
-      const name = draft.competitors.find((c) => c.id === p.competitorId)?.name
-      log(draft, p.eventId, 'payment.reject', `Pagamento informado por ${name} não localizado. Motivo: ${reason}`)
-    })
-  },
-
-  // Montagem
-  generateSchedule(eventId) {
-    return mutate((draft) => {
-      const event = findEvent(draft, eventId)
-      if (event.schedule?.publishedAt) return fail('A montagem já foi publicada. Despublique antes de sortear de novo.')
-      if (eventRuns(draft, eventId).some((r) => r.status === 'done')) return fail('A prova já começou.')
-      const seed = newSeed()
-      draft.runs = draft.runs.filter((r) => r.eventId !== eventId)
-      draft.runs.push(...buildSchedule(draft, eventId, { seed }))
-      event.schedule = { ...event.schedule, seed, generatedAt: nowIso() }
-      log(draft, eventId, 'schedule.generate', `Montagem sorteada com a semente ${seed}.`)
-    })
-  },
-
-  publishSchedule(eventId, publish = true) {
-    return mutate((draft) => {
-      const event = findEvent(draft, eventId)
-      if (!publish && eventRuns(draft, eventId).some((r) => r.status === 'done')) return fail('A prova já começou. A montagem não pode ser despublicada.')
-      event.schedule = { ...event.schedule, publishedAt: publish ? nowIso() : null }
-      log(draft, eventId, publish ? 'schedule.publish' : 'schedule.unpublish', publish ? 'Montagem publicada e travada.' : 'Montagem despublicada.')
-    })
-  },
-
-  appendConfirmed(eventId) {
-    return mutate((draft) => {
-      const previous = eventRuns(draft, eventId, 'qualifying')
-      const seed = newSeed()
-      const added = buildSchedule(draft, eventId, { seed, previous, startNumber: nextRunNumber(draft, eventId) })
-      if (!added.length) return fail('Não há trios confirmados fora da montagem.')
-      draft.runs.push(...added)
-      log(draft, eventId, 'schedule.append', `${new Set(added.map((r) => r.registrationId)).size} trios adicionados ao fim da montagem (semente ${seed}).`)
-      return { added: added.length }
-    })
-  },
-
-  moveRun(runId, direction, reason) {
-    return mutate((draft) => {
-      const run = draft.runs.find((r) => r.id === runId)
-      if (!run || run.status !== 'pending') return fail('Só passadas pendentes podem ser movidas.')
-      const event = findEvent(draft, run.eventId)
-      if (event.schedule?.publishedAt && !String(reason || '').trim()) return fail('A montagem está publicada. Informe o motivo do ajuste.')
-      const list = eventRuns(draft, run.eventId)
-      const i = list.findIndex((r) => r.id === runId)
-      const other = list[i + direction]
-      if (!other || other.status !== 'pending') return fail('Não há passada pendente nessa direção.')
-      ;[run.number, other.number] = [other.number, run.number]
-      log(draft, run.eventId, 'schedule.move', `Passada ${other.number} trocada com ${run.number}.${reason ? ` Motivo: ${reason}` : ''}`)
-    })
-  },
-
-  setCattle(runId, cattle, reason) {
-    return mutate((draft) => {
-      const run = draft.runs.find((r) => r.id === runId)
-      if (!run) return fail('Passada não encontrada.')
-      const event = findEvent(draft, run.eventId)
-      if (event.schedule?.publishedAt && !String(reason || '').trim()) return fail('A montagem está publicada. Informe o motivo do ajuste.')
-      const before = run.cattle
-      run.cattle = Number(cattle)
-      log(draft, run.eventId, 'schedule.cattle', `Boi da passada ${run.number}: ${before} para ${run.cattle}.${reason ? ` Motivo: ${reason}` : ''}`)
-    })
-  },
-
-  // Pista
-  recordRun(runId, { time, occurrence, note }) {
-    return mutate((draft) => {
-      const run = draft.runs.find((r) => r.id === runId)
-      if (!run) return fail('Passada não encontrada.')
-      // Trava contra duplo clique e contra duas mesas lançando a mesma passada.
-      if (run.status !== 'pending') return fail(`A passada ${run.number} já foi lançada.`)
-      const event = findEvent(draft, run.eventId)
-      const occ = (event.occurrences || []).find((o) => o.code === occurrence)
-      const needsTime = !occ || occ.effect === 'penalty'
-      const value = parseTime(time)
-      if (needsTime && !(value > 0)) return fail('Informe um tempo válido.')
-      Object.assign(run, {
-        status: 'done',
-        time: needsTime ? value : null,
-        occurrence: occ?.code || null,
-        note: note || '',
-        recordedAt: nowIso(),
-        recordedBy: actor()
-      })
-      if (event.status === 'registration_closed' || event.status === 'registration_open') event.status = 'in_progress'
-      log(draft, run.eventId, 'run.record', `Passada ${run.number}: ${occ ? occ.label : `${run.time.toFixed(3)}s`}${occ?.effect === 'penalty' ? ` (${run.time.toFixed(3)}s)` : ''}.`, { runId })
-    })
-  },
-
-  correctRun(runId, { time, occurrence, note }, reason) {
-    return mutate((draft) => {
-      const run = draft.runs.find((r) => r.id === runId)
-      if (!run || run.status !== 'done') return fail('Só passadas lançadas podem ser corrigidas.')
-      if (!String(reason || '').trim()) return fail('Informe o motivo da correção.')
-      const event = findEvent(draft, run.eventId)
-      if (event.homologated?.[run.categoryId]) return fail('O resultado desta categoria já foi homologado. Reabra antes de corrigir.')
-      const occ = (event.occurrences || []).find((o) => o.code === occurrence)
-      const needsTime = !occ || occ.effect === 'penalty'
-      const value = parseTime(time)
-      if (needsTime && !(value > 0)) return fail('Informe um tempo válido.')
-      const before = { time: run.time, occurrence: run.occurrence, note: run.note }
-      Object.assign(run, { time: needsTime ? value : null, occurrence: occ?.code || null, note: note ?? run.note, updatedAt: nowIso(), updatedBy: actor() })
-      log(draft, run.eventId, 'run.correct', `Passada ${run.number} corrigida. Motivo: ${reason}`, { runId, before, after: { time: run.time, occurrence: run.occurrence, note: run.note } })
-    })
-  },
-
-  undoRun(runId, reason) {
-    return mutate((draft) => {
-      const run = draft.runs.find((r) => r.id === runId)
-      if (!run || run.status !== 'done') return fail('Passada não está lançada.')
-      if (!String(reason || '').trim()) return fail('Informe o motivo.')
-      const event = findEvent(draft, run.eventId)
-      if (event.homologated?.[run.categoryId]) return fail('O resultado desta categoria já foi homologado.')
-      const before = { time: run.time, occurrence: run.occurrence }
-      Object.assign(run, { status: 'pending', time: null, occurrence: null, note: '', recordedAt: null, recordedBy: null })
-      log(draft, run.eventId, 'run.undo', `Lançamento da passada ${run.number} desfeito. Motivo: ${reason}`, { runId, before })
-    })
-  },
-
-  // Final e homologação
-  generateFinal(eventId, categoryId) {
-    return mutate((draft) => {
-      const cat = draft.categories.find((c) => c.id === categoryId)
-      if (!qualifyingComplete(draft, eventId, categoryId)) return fail(`A classificatória da ${cat.name} ainda não terminou.`)
-      if (draft.runs.some((r) => r.eventId === eventId && r.categoryId === categoryId && r.stage === 'final')) return fail('A final desta categoria já foi gerada.')
-      const seed = newSeed()
-      const runs = buildFinalRuns(draft, eventId, categoryId, { startNumber: nextRunNumber(draft, eventId), seed })
-      if (!runs.length) return fail('Nenhum trio classificado para a final.')
-      draft.runs.push(...runs)
-      log(draft, eventId, 'final.generate', `Final da ${cat.name} gerada com ${new Set(runs.map((r) => r.registrationId)).size} trios (semente ${seed}).`)
-    })
-  },
-
-  removeFinal(eventId, categoryId) {
-    return mutate((draft) => {
-      const finals = draft.runs.filter((r) => r.eventId === eventId && r.categoryId === categoryId && r.stage === 'final')
-      if (finals.some((r) => r.status === 'done')) return fail('A final já começou.')
-      draft.runs = draft.runs.filter((r) => !finals.includes(r))
-      log(draft, eventId, 'final.remove', 'Final removida para nova geração.')
-    })
-  },
-
-  homologate(eventId, categoryId, value = true, reason = '') {
-    return mutate((draft) => {
-      if (!value && !String(reason).trim()) return fail('Informe o motivo da reabertura.')
-      const event = findEvent(draft, eventId)
-      const cat = draft.categories.find((c) => c.id === categoryId)
-      event.homologated = { ...event.homologated }
-      if (value) event.homologated[categoryId] = { at: nowIso(), by: actor() }
-      else delete event.homologated[categoryId]
-      log(draft, eventId, value ? 'result.homologate' : 'result.reopen', `Resultado da ${cat.name} ${value ? 'homologado' : `reaberto para correção. Motivo: ${reason}`}.`)
-    })
-  },
-
-  // Base CONTEP
-  applyContepImport(items, { fileName, year }) {
-    return mutate((draft) => {
-      let updated = 0
-      let added = 0
-      items.filter((i) => i.apply).forEach((item) => {
-        const record = { contepCode: item.contepCode, name: item.name, cpf: item.cpf, handicap: item.handicap }
-        const at = draft.contep.records.findIndex((r) => (item.contepCode && r.contepCode === item.contepCode) || (item.cpf && r.cpf === item.cpf))
-        if (at >= 0) draft.contep.records[at] = { ...draft.contep.records[at], ...record }
-        else { draft.contep.records.push(record); added++ }
-        if (item.match) {
-          const c = draft.competitors.find((x) => x.id === item.match.id)
-          if (item.handicap != null && !Number.isNaN(item.handicap)) c.handicap = item.handicap
-          if (item.contepCode) c.contepCode = item.contepCode
-          c.handicapSource = 'contep'
-          updated++
-        }
-      })
-      draft.contep.year = Number(year)
-      draft.contep.importedAt = nowIso()
-      draft.contep.imports.unshift({ id: uid('imp'), at: nowIso(), by: actor(), fileName, year: Number(year), rows: items.length, updated, added })
-      log(draft, null, 'contep.import', `Base CONTEP ${year} importada de ${fileName}: ${updated} competidores atualizados, ${added} registros novos.`)
-      return { updated, added }
-    })
+  async removeTeamMember(id) {
+    if (!session.admin) return fail('Sem permissão.')
+    const { error } = await supabase.from('organization_members').delete().eq('id', id)
+    return error ? fail(error.message) : { ok: true }
   }
+})
+
+// Público e competidor no modo nuvem ----------------------------------------
+
+let publicBase = null
+const publicEvents = {}
+let portalSlice = null
+let stopPulse = null
+let firstPulse = true
+
+const mergeById = (base, extra) => {
+  const map = new Map(base.map((x) => [x.id, x]))
+  extra.forEach((x) => map.set(x.id, { ...map.get(x.id), ...x }))
+  return [...map.values()]
+}
+
+// Monta o estado público: base (eventos, categorias, competidores), os
+// eventos abertos na tela e, se houver competidor logado, a parte dele.
+function rebuildPublic() {
+  if (session.admin || !publicBase) return
+  const next = emptyState()
+  next.organizations = [publicBase.organization]
+  next.events = publicBase.events
+  next.categories = publicBase.categories
+  next.competitors = publicBase.competitors
+  next.contep.year = publicBase.contepYear || next.contep.year
+  next.contep.records = publicBase.contepRecords || []
+  Object.values(publicEvents).forEach((ev) => {
+    if (!ev) return
+    next.registrations.push(...ev.registrations)
+    next.registrationMembers.push(...ev.registrationMembers)
+    next.runs.push(...ev.runs)
+  })
+  if (portalSlice) {
+    next.events = mergeById(next.events, portalSlice.events || [])
+    next.categories = mergeById(next.categories, portalSlice.categories || [])
+    next.competitors = mergeById(next.competitors, portalSlice.competitors || [])
+    next.registrations = mergeById(next.registrations, portalSlice.registrations || [])
+    next.registrationMembers = mergeById(next.registrationMembers, portalSlice.registrationMembers || [])
+    next.runs = mergeById(next.runs, portalSlice.runs || [])
+    next.payments = portalSlice.payments || []
+  }
+  state = next
+  emit()
+}
+
+async function refreshPublic() {
+  const contepRecords = publicBase?.contepRecords
+  publicBase = await cloud.loadPublicBase()
+  if (contepRecords) publicBase.contepRecords = contepRecords
+  await Promise.all(cloud.watchedSlugs().map(async (slug) => { publicEvents[slug] = await cloud.loadPublicEvent(slug) }))
+  if (session.portalToken) await refreshPortal()
+  rebuildPublic()
+}
+
+async function refreshPortal(response) {
+  const res = response?.slice ? response : await portalCall('me', { token: session.portalToken })
+  if (!res.ok) {
+    if (res.expired) actions.logoutCompetitor()
+    return
+  }
+  portalSlice = res.slice
+  setSession({ competitorId: res.slice.competitorId })
+  rebuildPublic()
+}
+
+async function loginPortal(cpf, phoneEnd) {
+  const res = await portalCall('login', { cpf, phoneEnd })
+  if (!res.ok) return res
+  safeSet(sessionStorage, PORTAL_KEY, res.token)
+  session = { ...session, portalToken: res.token }
+  await refreshPortal(res)
+  return { ok: true }
+}
+
+async function startPublic() {
+  try {
+    publicBase = await cloud.loadPublicBase()
+    if (session.portalToken) await refreshPortal()
+    rebuildPublic()
+    setStatus({ ready: true, scope: 'public', error: '' })
+    if (stopPulse) stopPulse()
+    firstPulse = true
+    stopPulse = cloud.subscribePulse(publicBase.organization.id, (info) => {
+      if (info?.resubscribed && firstPulse) { firstPulse = false; return }
+      if (!session.admin) refreshPublic().catch(() => {})
+    })
+  } catch (err) {
+    setStatus({ ready: true, error: `Não foi possível carregar os dados. ${err.message}` })
+  }
+}
+
+// Abre a sessão da organização: assume os convites do e-mail e carrega tudo.
+async function startSession() {
+  const { data, error } = await supabase.rpc('claim_membership')
+  if (error) return fail(error.message)
+  const membership = (data || [])[0]
+  if (!membership) {
+    await supabase.auth.signOut()
+    return fail('Este e-mail não faz parte da equipe da organização. Peça para ser adicionado.')
+  }
+  const { data: userData } = await supabase.auth.getUser()
+  const email = userData?.user?.email || membership.email
+  if (stopPulse) { stopPulse(); stopPulse = null }
+  setSession({ admin: { organizationId: membership.organization_id, role: membership.role, email, displayName: membership.display_name || email.split('@')[0] } })
+  setStatus({ ready: false, scope: 'admin' })
+  try {
+    await cloud.startAdmin(membership.organization_id, {
+      replace: (next) => { state = next; emit() },
+      patch: (fn) => {
+        const next = { ...state }
+        if (fn(next)) { state = next; emit() }
+      },
+      status: (patch) => setStatus({ sync: { ...status.sync, ...patch } })
+    })
+    setStatus({ ready: true, error: '' })
+    return { ok: true }
+  } catch (err) {
+    setStatus({ ready: true, error: `Não foi possível carregar os dados. ${err.message}` })
+    return fail(err.message)
+  }
+}
+
+async function bootCloud() {
+  const { data } = await supabase.auth.getSession()
+  if (data?.session) {
+    const res = await startSession()
+    if (res.ok) { setStatus({ authChecked: true }); return }
+  }
+  setStatus({ authChecked: true })
+  await startPublic()
+}
+
+if (mode === 'cloud' && typeof window !== 'undefined') {
+  bootCloud()
+  window.addEventListener('online', () => actions.reloadFromServer())
+}
+
+// Mantém os dados de um evento público carregados e ao vivo enquanto a tela
+// estiver aberta. No modo local e para a organização não faz nada.
+export function usePublicEvent(slug) {
+  useEffect(() => {
+    if (mode !== 'cloud' || !slug) return undefined
+    const unwatch = cloud.watchEvent(slug)
+    if (!session.admin && publicEvents[slug] === undefined) {
+      cloud.loadPublicEvent(slug).then((ev) => { publicEvents[slug] = ev; rebuildPublic() }).catch(() => {})
+    }
+    return unwatch
+  }, [slug])
+}
+
+// A base CONTEP pública só é buscada por quem está se inscrevendo.
+export function usePublicContep() {
+  useEffect(() => {
+    if (mode !== 'cloud' || session.admin || publicBase?.contepRecords) return
+    cloud.loadPublicContep().then((records) => {
+      if (publicBase) publicBase.contepRecords = records
+      rebuildPublic()
+    }).catch(() => {})
+  }, [])
 }
 
 const subscribe = (l) => {
@@ -587,7 +445,7 @@ const subscribe = (l) => {
 
 export function useStore() {
   const snap = useSyncExternalStore(subscribe, () => snapshot)
-  return { state: snap.state, session: snap.session, actions }
+  return { state: snap.state, session: snap.session, status: snap.status, actions }
 }
 
 export const getState = () => state

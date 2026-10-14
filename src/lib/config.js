@@ -11,3 +11,10 @@ export const DATA_MODE =
   import.meta.env.VITE_DATA_MODE === 'supabase' && SUPABASE_URL && SUPABASE_ANON_KEY ? 'supabase' : 'local'
 
 export const isSupabase = DATA_MODE === 'supabase'
+
+// Organização exibida no site público. Vazio: a primeira cadastrada no banco
+// (uma instalação por organizador).
+export const ORG_SLUG = import.meta.env.VITE_ORG_SLUG || ''
+
+// Função do servidor que atende o competidor (inscrição, convites, "já paguei").
+export const PORTAL_URL = import.meta.env.VITE_PORTAL_URL || '/.netlify/functions/portal'

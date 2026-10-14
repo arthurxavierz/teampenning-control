@@ -36,6 +36,23 @@ export function drawCattle(rand, cattle, used = []) {
   return pool[Math.floor(rand() * pool.length)]
 }
 
+// Boi da passada conforme o modo da boiada: sorteado na montagem ("draw"),
+// em sequência ("sequential") ou sorteado na hora, pela mesa ("live").
+export function assignCattle(event, rand, used, number) {
+  const mode = event?.cattle?.mode
+  if (mode === 'live') return null
+  if (mode === 'sequential') {
+    const min = Number(event.cattle?.min ?? 0)
+    const max = Number(event.cattle?.max ?? 6)
+    return min + ((number - 1) % (max - min + 1))
+  }
+  return drawCattle(rand, event?.cattle, used)
+}
+
+// Bois que o trio já recebeu, para o sorteio não repetir.
+export const usedCattle = (state, registrationId, exceptRunId) =>
+  state.runs.filter((r) => r.registrationId === registrationId && r.id !== exceptRunId && r.cattle != null).map((r) => r.cattle)
+
 function blocksFor(regs, categories, mode) {
   const runsOf = (reg) => Number(categories.find((c) => c.id === reg.categoryId)?.qualifyingRuns || 0)
   const maxRounds = Math.max(0, ...regs.map(runsOf))
@@ -78,10 +95,8 @@ export function buildSchedule(state, eventId, { seed, startNumber = 1, previous 
     while (pending.length) {
       const [chosen] = pending.splice(pickNext(pending, memberMap, lastSeen, position, minGap), 1)
       const used = cattleUsed[chosen.id] || (cattleUsed[chosen.id] = [])
-      const cattle = event.cattle?.mode === 'sequential'
-        ? Number(event.cattle?.min ?? 0) + ((number - 1) % (Number(event.cattle?.max ?? 6) - Number(event.cattle?.min ?? 0) + 1))
-        : drawCattle(rand, event.cattle, used)
-      used.push(cattle)
+      const cattle = assignCattle(event, rand, used, number)
+      if (cattle != null) used.push(cattle)
       result.push({
         id: uid('run'),
         eventId,

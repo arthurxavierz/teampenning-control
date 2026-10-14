@@ -33,6 +33,7 @@ describe('inscrição', () => {
 
   it('bloqueia trio repetido', () => {
     const s = seed()
+    s.events.find((e) => e.id === 'evt_demo').limits.maxSameTrio = 1
     expect(base(s, catByName(s, 'evt_demo', 'SOMA 03'), trio('maria', 'jose', 'arthur')).join()).toMatch(/já está inscrito/)
   })
 

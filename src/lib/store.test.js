@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { actions, getState } from './store.jsx'
 import { competitorAccount } from './finance.js'
-import { finalRanking, qualifyingRanking } from './ranking.js'
+import { finalRanking, prizeByRegistration, prizeTable, qualifyingRanking } from './ranking.js'
 import { makeCpf } from './utils.js'
 
 const EVT = 'evt_demo'
@@ -118,5 +118,110 @@ describe('fluxo completo na store', () => {
     const res = actions.createEvent({ name: '9ª Etapa', date: '2026-11-10' }, EVT)
     expect(getState().categories.filter((c) => c.eventId === res.eventId).map((c) => c.name)).toEqual(['SOMA 11', 'SOMA 03', 'INICIANTE'])
     expect(getState().events.find((e) => e.id === res.eventId).slug).toBe('9-etapa')
+  })
+})
+
+describe('regras novas do circuito', () => {
+  beforeEach(() => {
+    actions.reset()
+    actions.setOperator('Mesa 1')
+  })
+
+  it('balcão lança trio já aceito, sem CPF, várias vezes', () => {
+    const res = actions.createRegistration({
+      eventId: EVT,
+      categoryId: cat('SOMA 11').id,
+      byOrganization: true,
+      copies: 2,
+      people: [{ competitorId: 'cmp_bruno' }, { competitorId: 'cmp_igor' }, { name: 'TIKIM', handicap: 2 }]
+    })
+    expect(res.ok).toBe(true)
+    expect(res.registrationIds).toHaveLength(2)
+    const tikim = getState().competitors.filter((c) => c.name === 'TIKIM')
+    expect(tikim).toHaveLength(1)
+    res.registrationIds.forEach((id) => {
+      const members = getState().registrationMembers.filter((m) => m.registrationId === id)
+      expect(members.every((m) => m.confirmationStatus === 'accepted')).toBe(true)
+      expect(members.map((m) => m.position)).toEqual([0, 1, 2])
+    })
+    // Limite de 2 trios iguais.
+    expect(actions.createRegistration({ eventId: EVT, categoryId: cat('SOMA 11').id, byOrganization: true, people: [{ competitorId: 'cmp_bruno' }, { competitorId: 'cmp_igor' }, { competitorId: tikim[0].id }] }).ok).toBe(false)
+  })
+
+  it('tempo acima do limite vira SAT automaticamente', () => {
+    actions.saveCategory(EVT, { ...cat('INICIANTE'), timeLimit: 60 })
+    actions.generateSchedule(EVT)
+    const run = pendingRuns().find((r) => r.categoryId === cat('INICIANTE').id)
+    const res = actions.recordRun(run.id, { time: '61,2' })
+    expect(res.autoSat).toBe(true)
+    const saved = getState().runs.find((r) => r.id === run.id)
+    expect(saved.occurrence).toBe('SAT')
+    expect(saved.note).toMatch(/acima do limite/)
+  })
+
+  it('boi sorteado na hora pela mesa', () => {
+    const event = getState().events.find((e) => e.id === EVT)
+    actions.updateEvent(EVT, { cattle: { ...event.cattle, mode: 'live' } })
+    actions.generateSchedule(EVT)
+    const run = pendingRuns()[0]
+    expect(run.cattle).toBeNull()
+    const res = actions.drawCattleNow(run.id)
+    expect(res.ok).toBe(true)
+    expect(getState().runs.find((r) => r.id === run.id).cattle).toBe(res.cattle)
+    expect(actions.drawCattleNow(run.id).ok).toBe(false)
+  })
+
+  it('categoria com idade e sexo exige os dados e barra quem não cabe', () => {
+    const res = actions.saveCategory(EVT, { name: 'MIRIM', maxHandicap: 11, qualifyingRuns: 2, bestTimesCount: 1, finalistsCount: 3, finalRuns: 1, maxAge: 13, maxAgeSum: 36 })
+    expect(res.ok).toBe(true)
+    const mirim = cat('MIRIM')
+    const year = Number(getState().events.find((e) => e.id === EVT).date.slice(0, 4))
+    const kid = (name, age, base) => ({ name, cpf: makeCpf(base), phone: '34900000000', birthDate: `${year - age}-01-01` })
+    const tooOld = actions.createRegistration({ eventId: EVT, categoryId: mirim.id, byOrganization: true, people: [kid('A', 12, '100200300'), kid('B', 12, '100200301'), kid('C', 14, '100200302')] })
+    expect(tooOld.ok).toBe(false)
+    expect(tooOld.errors.join()).toMatch(/até 13/)
+    const sumHigh = actions.createRegistration({ eventId: EVT, categoryId: mirim.id, byOrganization: true, people: [kid('A', 13, '100200300'), kid('B', 13, '100200301'), kid('C', 12, '100200302')] })
+    expect(sumHigh.errors.join()).toMatch(/soma das idades do trio é 38/)
+    expect(actions.createRegistration({ eventId: EVT, categoryId: mirim.id, byOrganization: true, people: [kid('A', 12, '100200300'), kid('B', 11, '100200301'), kid('C', 10, '100200302')] }).ok).toBe(true)
+
+    actions.saveCategory(EVT, { name: 'FEMININA', maxHandicap: 11, qualifyingRuns: 2, bestTimesCount: 1, finalistsCount: 3, finalRuns: 1, gender: 'F' })
+    const fem = actions.createRegistration({ eventId: EVT, categoryId: cat('FEMININA').id, byOrganization: true, people: [{ competitorId: 'cmp_maria' }, { competitorId: 'cmp_carla' }, { competitorId: 'cmp_lucas' }] })
+    expect(fem.errors.join()).toMatch(/Informe o sexo/)
+  })
+
+  it('desempate em pista decide a ordem dos empatados', () => {
+    const ini = cat('INICIANTE')
+    actions.saveCategory(EVT, { ...ini, tiebreak: 'runoff' })
+    actions.generateSchedule(EVT)
+    // Todos os trios da Iniciante fazem os mesmos tempos.
+    pendingRuns().forEach((r) => actions.recordRun(r.id, { time: r.categoryId === ini.id ? 40 : 45 + r.number / 100 }))
+    let rows = qualifyingRanking(getState(), EVT, ini.id)
+    expect(rows[0].position).toBe(1)
+    expect(rows[1].position).toBe(1)
+    const tied = rows.filter((r) => r.position === 1).map((r) => r.registration.id)
+    expect(actions.createRunoff(EVT, ini.id, 'qualifying', tied).ok).toBe(true)
+    const runoffs = getState().runs.filter((r) => r.stage === 'runoff')
+    expect(runoffs).toHaveLength(tied.length)
+    runoffs.forEach((r, i) => actions.recordRun(r.id, { time: 30 + i }))
+    rows = qualifyingRanking(getState(), EVT, ini.id)
+    expect(rows.map((r) => r.position).slice(0, 2)).toEqual([1, 2])
+    expect(rows[0].registration.id).toBe(runoffs[0].registrationId)
+  })
+
+  it('premiação por percentual do arrecadado, dividida no empate', () => {
+    const ini = cat('INICIANTE')
+    actions.saveCategory(EVT, { ...ini, tiebreak: 'shared', prize: { mode: 'percent', percent: 60, split: '50, 30, 20' } })
+    const table = prizeTable(getState(), EVT, ini.id)
+    const confirmed = getState().registrations.filter((r) => r.eventId === EVT && r.categoryId === ini.id && r.status === 'confirmed').length
+    expect(table.collected).toBe(confirmed * 3 * 350)
+    expect(table.pool).toBe(Math.round(confirmed * 1050 * 0.6 * 100) / 100)
+    const fake = [
+      { registration: { id: 'a' }, position: 1 },
+      { registration: { id: 'b' }, position: 1 },
+      { registration: { id: 'c' }, position: 3 }
+    ]
+    const prize = prizeByRegistration(fake, table)
+    expect(prize.a).toBe(Math.round(table.pool * 0.4 * 100) / 100)
+    expect(prize.c).toBe(table.places[2].amount)
   })
 })

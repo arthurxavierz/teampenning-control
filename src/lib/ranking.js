@@ -1,8 +1,9 @@
 import { membersOf } from './rules.js'
-import { drawCattle } from './schedule.js'
+import { assignCattle } from './schedule.js'
 import { seededRandom, uid } from './utils.js'
 
 const round3 = (n) => Math.round(n * 1000) / 1000
+const round2 = (n) => Math.round(n * 100) / 100
 
 export const occurrenceOf = (event, code) => (code ? (event?.occurrences || []).find((o) => o.code === code) : null)
 
@@ -32,9 +33,20 @@ function compareLists(a, b) {
 // equipes dividem a posição, que é o comportamento seguro enquanto a
 // organização não homologa uma regra oficial.
 function tiebreak(category, a, b) {
+  // Desempate em pista, quando já corrido, decide antes de qualquer critério.
+  if (a.runoff != null && b.runoff != null && a.runoff !== b.runoff) return a.runoff - b.runoff
   if (category.tiebreak === 'best_single') return compareLists(a.times, b.times)
   if (category.tiebreak === 'last_valid') return (a.lastValid ?? Infinity) - (b.lastValid ?? Infinity)
   return 0
+}
+
+// Tempo do trio no desempate em pista daquela fase. Sem tempo válido conta
+// como pior que qualquer tempo.
+function runoffTime(state, event, eventId, categoryId, registrationId, stageOf) {
+  const runs = state.runs.filter((r) => r.eventId === eventId && r.categoryId === categoryId && r.stage === 'runoff' && r.runoffFor === stageOf && r.registrationId === registrationId && r.status === 'done')
+  if (!runs.length) return null
+  const last = runs.sort((a, b) => b.number - a.number)[0]
+  return effectiveTime(last, event) ?? 9999
 }
 
 function assignPositions(rows, same) {
@@ -79,6 +91,7 @@ export function qualifyingRanking(state, eventId, categoryId) {
       times,
       counted,
       lastValid: valid[valid.length - 1],
+      runoff: runoffTime(state, event, eventId, categoryId, id, 'qualifying'),
       partial: round3(counted.reduce((a, b) => a + b, 0)),
       score: eligible ? round3(counted.reduce((a, b) => a + b, 0)) : null,
       eligible,
@@ -124,6 +137,7 @@ export function finalRanking(state, eventId, categoryId) {
       registration: state.registrations.find((r) => r.id === id),
       members: competitorsOf(state, id),
       runs: own,
+      runoff: runoffTime(state, event, eventId, categoryId, id, 'final'),
       finalTimes: times,
       carried,
       qualifyingPosition: qualifying[id]?.position ?? null,
@@ -135,8 +149,14 @@ export function finalRanking(state, eventId, categoryId) {
   })
 
   const byQualifying = (a, b) => (a.qualifyingPosition ?? 999) - (b.qualifyingPosition ?? 999)
-  const finished = rows.filter((r) => r.complete && !r.invalid).sort((a, b) => a.total - b.total || byQualifying(a, b))
-  assignPositions(finished, (a, b) => a.total === b.total && byQualifying(a, b) === 0)
+  // Na final, o empate de soma vai para o desempate em pista (se corrido) e
+  // depois para a melhor posição na classificatória, salvo empate mantido.
+  const finalTie = (a, b) => {
+    if (a.runoff != null && b.runoff != null && a.runoff !== b.runoff) return a.runoff - b.runoff
+    return category.tiebreak === 'shared' || category.tiebreak === 'runoff' ? 0 : byQualifying(a, b)
+  }
+  const finished = rows.filter((r) => r.complete && !r.invalid).sort((a, b) => a.total - b.total || finalTie(a, b) || byQualifying(a, b))
+  assignPositions(finished, (a, b) => a.total === b.total && finalTie(a, b) === 0)
   const running = rows.filter((r) => !r.complete && !r.invalid).sort(byQualifying).map((r) => ({ ...r, position: null }))
   const out = rows.filter((r) => r.invalid).sort(byQualifying).map((r) => ({ ...r, position: null }))
   return [...finished, ...running, ...out]
@@ -168,8 +188,8 @@ export function buildFinalRuns(state, eventId, categoryId, { startNumber, seed }
     finalists.forEach((row) => {
       const id = row.registration.id
       const taken = used[id] || (used[id] = [])
-      const cattle = drawCattle(rand, event?.cattle, taken)
-      taken.push(cattle)
+      const cattle = assignCattle(event, rand, taken, number)
+      if (cattle != null) taken.push(cattle)
       runs.push({
         id: uid('run'),
         eventId,
@@ -214,4 +234,73 @@ export function timeToQualify(state, eventId, categoryId, registrationId) {
   const target = others[cut - 1].score
   const time = round3(target - keep.reduce((a, b) => a + b, 0))
   return time > 0 ? { status: 'need', time } : { status: 'out' }
+}
+
+// Passadas de desempate: os trios empatados correm uma vez cada, na ordem
+// inversa da classificação, como na final.
+export function buildRunoffRuns(state, eventId, categoryId, stageOf, registrationIds, { startNumber, seed }) {
+  const event = state.events.find((e) => e.id === eventId)
+  const rand = seededRandom(seed || 1)
+  let number = startNumber
+  return [...registrationIds].reverse().map((registrationId) => ({
+    id: uid('run'),
+    eventId,
+    registrationId,
+    categoryId,
+    stage: 'runoff',
+    runoffFor: stageOf,
+    round: 1,
+    number: number++,
+    cattle: assignCattle(event, rand, [], number),
+    status: 'pending',
+    time: null,
+    occurrence: null,
+    note: ''
+  }))
+}
+
+// Grupos de trios empatados que ainda dependem de decisão: mesma posição e
+// sem desempate em pista resolvido. Só interessa empate que mexe em pódio,
+// premiação ou linha de corte.
+export function tieGroups(rows, relevantUntil = Infinity) {
+  const groups = {}
+  rows.filter((r) => r.position != null && r.tied && r.position <= relevantUntil).forEach((r) => {
+    ;(groups[r.position] ||= []).push(r)
+  })
+  return Object.entries(groups).map(([position, items]) => ({ position: Number(position), rows: items })).filter((g) => g.rows.length > 1)
+}
+
+// Premiação da categoria. Valor fixo ou percentual do arrecadado com as
+// inscrições confirmadas da categoria, dividido pelas colocações conforme a
+// tabela (ex.: 50, 30, 20).
+export function parseSplit(split) {
+  if (Array.isArray(split)) return split.map(Number).filter((n) => n > 0)
+  return String(split || '').split(/[;,\s]+/).map((n) => Number(String(n).replace(',', '.'))).filter((n) => n > 0)
+}
+
+export function prizeTable(state, eventId, categoryId) {
+  const category = state.categories.find((c) => c.id === categoryId)
+  const prize = category?.prize || {}
+  if (!prize.mode || prize.mode === 'none') return null
+  const regs = state.registrations.filter((r) => r.eventId === eventId && r.categoryId === categoryId && r.status === 'confirmed')
+  const collected = regs.reduce((sum, r) => sum + membersOf(state, r.id).reduce((s, m) => s + Number(m.price || 0), 0), 0)
+  const pool = prize.mode === 'fixed' ? Number(prize.amount || 0) : round2(collected * Number(prize.percent || 0) / 100)
+  const split = parseSplit(prize.split)
+  const totalPct = split.reduce((a, b) => a + b, 0) || 1
+  const places = split.map((pct, i) => ({ place: i + 1, percent: pct, amount: round2(pool * pct / totalPct) }))
+  return { mode: prize.mode, collected, pool, places }
+}
+
+// Valor de cada trio. Empatados dividem a soma das colocações que ocupam.
+export function prizeByRegistration(rows, table) {
+  const out = {}
+  if (!table) return out
+  const byPosition = {}
+  rows.filter((r) => r.position != null).forEach((r) => { (byPosition[r.position] ||= []).push(r) })
+  Object.entries(byPosition).forEach(([position, items]) => {
+    const start = Number(position)
+    const amount = table.places.filter((p) => p.place >= start && p.place < start + items.length).reduce((s, p) => s + p.amount, 0)
+    if (amount > 0) items.forEach((r) => { out[r.registration.id] = round2(amount / items.length) })
+  })
+  return out
 }

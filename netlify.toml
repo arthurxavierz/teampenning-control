@@ -6,6 +6,12 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Funções do servidor (portal do competidor). O esbuild junta o código de
+# src/lib que elas importam.
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
 # O app é uma SPA com React Router. Sem esta regra, abrir uma rota direto
 # (por exemplo /admin ou /eventos/8-etapa-ctm-hsf) ou dar F5 devolveria 404.
 # Toda rota cai no index.html e o roteador resolve no navegador.
