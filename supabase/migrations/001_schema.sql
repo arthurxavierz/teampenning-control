@@ -413,6 +413,16 @@ grant execute on function public.public_event(text, text) to anon, authenticated
 grant execute on function public.public_contep(text) to anon, authenticated;
 grant execute on function public.claim_membership() to authenticated;
 
+-- Permissões de tabela ------------------------------------------------------
+-- Projetos novos do Supabase não expõem tabelas sozinhos. O acesso de fato é
+-- decidido pelo RLS acima; aqui só se libera o caminho.
+grant usage on schema public to anon, authenticated, service_role;
+grant select, insert, update, delete on all tables in schema public to authenticated;
+grant all on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to authenticated, service_role;
+revoke all on public.portal_attempts from authenticated;
+grant select on public.sync_pulse to anon;
+
 -- Realtime ------------------------------------------------------------------
 
 do $$
