@@ -1,13 +1,34 @@
 import React, { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import { BadgeCheck, Download, Flag, RotateCcw, Trash2 } from 'lucide-react'
+import { BadgeCheck, Download, Flag, RotateCcw, Swords, Trash2 } from 'lucide-react'
 import { Button, PageHeader, ReasonDialog, StatusBadge, Tabs, useRun } from '../../components/UI'
 import { FinalTable, QualifyingTable } from '../../components/RankingTable'
 import { useStore } from '../../lib/store'
-import { finalRanking, qualifyingComplete, qualifyingRanking, timeToLead } from '../../lib/ranking'
+import { finalRanking, prizeByRegistration, prizeTable, qualifyingComplete, qualifyingRanking, tieGroups, timeToLead } from '../../lib/ranking'
 import { TIEBREAKS } from '../../lib/defaults'
 import { decimal, downloadCsv } from '../../lib/export'
-import { dateTime, time } from '../../lib/utils'
+import { dateTime, money, time, trioLabel } from '../../lib/utils'
+
+// Empates que mexem em pódio, premiação ou corte da final. Com desempate em
+// pista, a organização manda os trios correrem de novo daqui.
+function TiePanel({ groups, stage, event, category, pendingRunoff }) {
+  const { actions } = useStore()
+  const run = useRun()
+  if (!groups.length && !pendingRunoff) return null
+  return (
+    <div className="tie-panel">
+      {pendingRunoff && <p><Swords size={15} /> Desempate em pista aguardando na mesa: {pendingRunoff} passada{pendingRunoff > 1 ? 's' : ''}.</p>}
+      {!pendingRunoff && groups.map((g) => (
+        <div key={g.position} className="tie-line">
+          <span><b>Empate no {g.position}º lugar</b> entre {g.rows.map((r) => trioLabel(r.members)).join(', ')}</span>
+          <Button size="sm" variant="secondary" onClick={() => run(actions.createRunoff(event.id, category.id, stage, g.rows.map((r) => r.registration.id)), 'Desempate adicionado ao fim da ordem de passadas.')}>
+            <Swords size={14} /> Desempate em pista
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function Ranking() {
   const { event } = useOutletContext()
@@ -26,6 +47,13 @@ export default function Ranking() {
   const finalDone = finalRuns.length > 0 && finalRuns.every((r) => r.status === 'done')
   const homologated = event.homologated?.[cat.id]
   const qRuns = state.runs.filter((r) => r.eventId === event.id && r.categoryId === cat.id && r.stage === 'qualifying')
+  const prizeInfo = prizeTable(state, event.id, cat.id)
+  const prizeStage = finals.length ? finals : qualifying
+  const prizes = prizeByRegistration(prizeStage, prizeInfo)
+  const relevant = Math.max(Number(cat.finalistsCount || 0) + 1, prizeInfo?.places.length || 0, 3)
+  const pendingRunoff = (stage) => state.runs.filter((r) => r.eventId === event.id && r.categoryId === cat.id && r.stage === 'runoff' && r.runoffFor === stage && r.status === 'pending').length
+  const qTies = complete && !finals.length ? tieGroups(qualifying, relevant) : []
+  const fTies = finalDone ? tieGroups(finals, Math.max(prizeInfo?.places.length || 0, 3)) : []
 
   const leadFor = (row) => {
     const lead = timeToLead(state, event.id, cat.id, row.registration.id)
@@ -33,9 +61,9 @@ export default function Ranking() {
   }
 
   const exportCsv = () => downloadCsv(`resultado-${event.slug}-${cat.name.toLowerCase().replace(/\s+/g, '-')}.csv`, [
-    ['Etapa', 'Posição', 'Competidores', 'Tempos', 'Soma'],
-    ...finals.map((r) => ['Final', r.position ?? '', r.members.map((m) => m.name).join(', '), r.finalTimes.map((t) => (t == null ? 'ST' : decimal(t))).join(' | '), r.invalid ? 'Sem tempo' : decimal(r.total)]),
-    ...qualifying.map((r) => ['Classificatória', r.position ?? '', r.members.map((m) => m.name).join(', '), r.times.map(decimal).join(' | '), r.score == null ? '' : decimal(r.score)])
+    ['Etapa', 'Posição', 'Competidores', 'Tempos', 'Soma', 'Prêmio'],
+    ...finals.map((r) => ['Final', r.position ?? '', r.members.map((m) => m.name).join(', '), r.finalTimes.map((t) => (t == null ? 'ST' : decimal(t))).join(' | '), r.invalid ? 'Sem tempo' : decimal(r.total), prizes[r.registration.id] ? decimal(prizes[r.registration.id]) : '']),
+    ...qualifying.map((r) => ['Classificatória', r.position ?? '', r.members.map((m) => m.name).join(', '), r.times.map(decimal).join(' | '), r.score == null ? '' : decimal(r.score), !finals.length && prizes[r.registration.id] ? decimal(prizes[r.registration.id]) : ''])
   ])
 
   return (
@@ -54,6 +82,8 @@ export default function Ranking() {
         <span>{cat.finalRuns} passada{cat.finalRuns > 1 ? 's' : ''} na final</span>
         <span>{cat.carryQualifying ? 'Final soma a classificatória' : 'Final começa do zero'}</span>
         <span>Desempate: {TIEBREAKS[cat.tiebreak]}</span>
+        {cat.timeLimit ? <span>Tempo limite {cat.timeLimit}s</span> : null}
+        {prizeInfo && <span className="gold">Premiação {money(prizeInfo.pool)}{prizeInfo.mode === 'percent' ? ` (${cat.prize.percent}% de ${money(prizeInfo.collected)})` : ''}: {prizeInfo.places.map((p) => `${p.place}º ${money(p.amount)}`).join(' · ')}</span>}
       </div>
 
       <div className="stage-actions">
@@ -72,12 +102,14 @@ export default function Ranking() {
       {finals.length > 0 && (
         <section className="block">
           <h3 className="block-title">Final</h3>
-          <FinalTable rows={finals} category={cat} event={event} leadFor={leadFor} />
+          <TiePanel groups={fTies} stage="final" event={event} category={cat} pendingRunoff={pendingRunoff('final')} />
+          <FinalTable rows={finals} category={cat} event={event} leadFor={leadFor} prizes={prizes} />
         </section>
       )}
       <section className="block">
         <h3 className="block-title">Classificatória</h3>
-        <QualifyingTable rows={qualifying} category={cat} event={event} />
+        {!finals.length && <TiePanel groups={qTies} stage="qualifying" event={event} category={cat} pendingRunoff={pendingRunoff('qualifying')} />}
+        <QualifyingTable rows={qualifying} category={cat} event={event} prizes={finals.length ? null : prizes} />
       </section>
 
       {reopen && (

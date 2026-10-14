@@ -1,34 +1,29 @@
 import React, { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { AlertTriangle, ExternalLink, Search, UserX, Users } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, Plus, Search, UserX, Users } from 'lucide-react'
+import CounterRegistration from './CounterRegistration'
+import TrioSlot, { blankSlot, categoryNeeds, slotToPerson } from '../../components/TrioSlot'
 import { Button, Dots, Empty, Field, PageHeader, ReasonDialog, StatusBadge, Tabs, useRun } from '../../components/UI'
 import { useStore } from '../../lib/store'
 import { membersOf } from '../../lib/rules'
-import { cleanCpf, dateTime, formatCpf, maskCpf, normalize, trioLabel } from '../../lib/utils'
+import { dateTime, maskCpf, normalize, trioLabel } from '../../lib/utils'
 
 function Substitute({ member, onClose }) {
   const { state, actions } = useStore()
-  const [p, setP] = useState({ cpf: '', name: '', phone: '', contepCode: '', handicap: 0 })
+  const [slot, setSlot] = useState(blankSlot())
   const outgoing = state.competitors.find((c) => c.id === member.competitorId)
-  const known = state.competitors.find((c) => cleanCpf(c.cpf) === cleanCpf(p.cpf) && cleanCpf(p.cpf).length === 11)
-  const set = (k, v) => setP((s) => ({ ...s, [k]: v }))
+  const reg = state.registrations.find((r) => r.id === member.registrationId)
+  const cat = state.categories.find((c) => c.id === reg?.categoryId)
+  const inTrio = membersOf(state, member.registrationId).map((m) => m.competitorId)
   return (
     <ReasonDialog
       title={`Substituir ${outgoing?.name}`}
-      description="O novo integrante entra aguardando aceite. Se quem sai já pagou, o valor vira crédito no evento."
+      description="Quem entra já fica com o aceite registrado pela organização. Se quem sai já pagou, o valor vira crédito dele no evento."
       confirmLabel="Substituir"
       onClose={onClose}
-      onConfirm={(reason) => actions.substituteMember(member.id, p, reason)}
+      onConfirm={(reason) => actions.substituteMember(member.id, { ...slotToPerson(slot), accepted: true }, reason)}
     >
-      <Field label="CPF do novo integrante"><input value={formatCpf(p.cpf)} onChange={(e) => set('cpf', e.target.value)} /></Field>
-      {known ? <p className="notice notice-info small">Cadastro encontrado: {known.name}, handicap {known.handicap}.</p> : (
-        <div className="grid-2 tight">
-          <Field label="Nome"><input value={p.name} onChange={(e) => set('name', e.target.value)} /></Field>
-          <Field label="Telefone"><input value={p.phone} onChange={(e) => set('phone', e.target.value)} /></Field>
-          <Field label="Código CONTEP"><input value={p.contepCode} onChange={(e) => set('contepCode', e.target.value.toUpperCase())} /></Field>
-          <Field label="Handicap"><input type="number" value={p.handicap} onChange={(e) => set('handicap', e.target.value)} /></Field>
-        </div>
-      )}
+      <TrioSlot index={0} counter needs={categoryNeeds(cat)} slot={slot} taken={inTrio} onChange={setSlot} />
     </ReasonDialog>
   )
 }
@@ -42,6 +37,7 @@ export default function Registrations() {
   const [openId, setOpenId] = useState(null)
   const [cancelId, setCancelId] = useState(null)
   const [substitute, setSubstitute] = useState(null)
+  const [counter, setCounter] = useState(false)
   const cats = state.categories.filter((c) => c.eventId === event.id)
   const all = state.registrations.filter((r) => r.eventId === event.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const number = Object.fromEntries(all.map((r, i) => [r.id, i + 1]))
@@ -62,7 +58,12 @@ export default function Registrations() {
         eyebrow="Inscrições"
         title="Trios do evento"
         description="Cada trio depende do aceite e do pagamento dos três integrantes. Só trios confirmados entram na montagem."
-        actions={<a className="btn btn-secondary" href={`/eventos/${event.slug}/inscrever`} target="_blank" rel="noreferrer"><ExternalLink size={15} /> Formulário público</a>}
+        actions={(
+          <>
+            <a className="btn btn-secondary" href={`/eventos/${event.slug}/inscrever`} target="_blank" rel="noreferrer"><ExternalLink size={15} /> Formulário público</a>
+            <Button onClick={() => setCounter(true)}><Plus size={15} /> Lançar trio</Button>
+          </>
+        )}
       />
       {declared > 0 && <div className="notice notice-warn"><AlertTriangle size={16} /> {declared} trio{declared > 1 ? 's têm' : ' tem'} competidor com handicap declarado, sem registro na base CONTEP. Confira em <Link to="/admin/competidores">Competidores</Link>.</div>}
 
@@ -82,7 +83,7 @@ export default function Registrations() {
         <div className="search-input"><Search size={15} /><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nome ou CPF" /></div>
       </div>
 
-      {!rows.length ? <Empty title="Nenhum trio aqui" description="Ajuste o filtro ou compartilhe o formulário público de inscrição." /> : (
+      {!rows.length ? <Empty title="Nenhum trio aqui" description="Lance os trios pelo balcão ou compartilhe o formulário público de inscrição." action={<Button onClick={() => setCounter(true)}><Plus size={15} /> Lançar trio</Button>} /> : (
         <div className="table">
           <div className="thead reg-cols"><span>#</span><span>Trio</span><span>Categoria</span><span>Soma</span><span>Aceites</span><span>Pagos</span><span>Status</span></div>
           {rows.map((r) => {
@@ -109,9 +110,12 @@ export default function Registrations() {
                         return (
                           <div key={m.id} className="member-card">
                             <b>{c?.name}{r.createdByCompetitorId === c?.id && <small> criou o trio</small>}</b>
-                            <span>{maskCpf(c?.cpf)} · {c?.contepCode || 'sem CONTEP'}</span>
+                            <span>{c?.cpf ? maskCpf(c.cpf) : 'sem CPF'} · {c?.contepCode || 'sem CONTEP'}</span>
                             <span>Handicap {m.handicapSnapshot}{c?.handicapSource === 'declared' && <em className="warn"> declarado</em>}</span>
                             <div className="member-status"><StatusBadge status={m.confirmationStatus} /><StatusBadge status={m.paymentStatus} /></div>
+                            {r.status !== 'cancelled' && m.confirmationStatus === 'pending' && (
+                              <button className="link" onClick={() => run(actions.acceptForMember(m.id), `Aceite de ${c?.name} registrado.`)}><CheckCircle2 size={13} /> Registrar aceite</button>
+                            )}
                             {r.status !== 'cancelled' && <button className="link" onClick={() => setSubstitute(m)}><Users size={13} /> Substituir</button>}
                           </div>
                         )
@@ -144,6 +148,7 @@ export default function Registrations() {
         />
       )}
       {substitute && <Substitute member={substitute} onClose={() => setSubstitute(null)} />}
+      {counter && <CounterRegistration event={event} onClose={() => setCounter(false)} onDone={(res) => run(res, res.registrationIds?.length > 1 ? `${res.registrationIds.length} inscrições lançadas.` : 'Trio lançado.')} />}
     </div>
   )
 }

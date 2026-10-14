@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { Keyboard, Pencil, Undo2 } from 'lucide-react'
+import { Dices, Keyboard, Pencil, Undo2 } from 'lucide-react'
 import { Button, CattleBrand, Empty, Field, Gallop, PageHeader, ReasonDialog, StatusBadge, useRun } from '../../components/UI'
 import { useStore } from '../../lib/store'
 import { effectiveTime, occurrenceOf } from '../../lib/ranking'
@@ -45,12 +45,14 @@ export default function Operation() {
   const [busy, setBusy] = useState(false)
   const [correcting, setCorrecting] = useState(null)
   const [undoing, setUndoing] = useState(null)
+  const [cattleInput, setCattleInput] = useState('')
   const input = useRef(null)
   const occurrences = event.occurrences || []
 
   useEffect(() => {
     setT('')
     setNote('')
+    setCattleInput('')
     input.current?.focus()
   }, [current?.id])
 
@@ -58,8 +60,10 @@ export default function Operation() {
     if (!current || busy) return
     const occ = occurrence && occurrences.find((o) => o.code === occurrence)
     setBusy(true)
-    const res = actions.recordRun(current.id, { time: t, occurrence, note })
-    run(res, `Passada ${current.number}: ${occ ? occ.label : `${parseTime(t).toFixed(3)}s`}`)
+    const res = actions.recordRun(current.id, { time: t, occurrence, note, cattle: cattleInput })
+    run(res, res.autoSat
+      ? `Passada ${current.number}: ${parseTime(t).toFixed(3)}s passou do limite e virou SAT`
+      : `Passada ${current.number}: ${occ ? occ.label : `${parseTime(t).toFixed(3)}s`}`)
     // Pequena trava: um Enter repetido não lança a passada seguinte por engano.
     setTimeout(() => setBusy(false), 450)
   }
@@ -97,6 +101,14 @@ export default function Operation() {
   const members = current ? memberIdsOf(state, current.registrationId).map(comp) : []
   const cat = current && state.categories.find((c) => c.id === current.categoryId)
   const next = runs.filter((r) => r.status === 'pending').slice(1, 4)
+  const limit = Number(cat?.timeLimit || 0)
+  const typed = parseTime(t)
+  const overLimit = limit > 0 && typed > limit
+  const stageLabel = current?.stage === 'final' ? `Final, rodada ${current.round}` : current?.stage === 'runoff' ? 'Desempate em pista' : `Rodada ${current?.round}`
+  const setCattleNow = (value) => {
+    if (value === '' || value == null) return
+    run(actions.setCattle(current.id, value, ''), `Boi ${value} na passada ${current.number}.`)
+  }
   const progress = Math.round(((runs.length - runs.filter((r) => r.status === 'pending').length) / runs.length) * 100)
 
   return (
@@ -119,9 +131,23 @@ export default function Operation() {
               <div className="op-tags">
                 <StatusBadge status={current.stage} />
                 <span className="op-cat" style={{ '--cat': cat?.color }}>{cat?.name}</span>
-                <span>{current.stage === 'final' ? `Final, rodada ${current.round}` : `Rodada ${current.round}`}</span>
+                <span>{stageLabel}</span>
               </div>
-              <CattleBrand value={current.cattle} size="lg" />
+              {current.cattle == null ? (
+                <div className="cattle-live">
+                  <CattleBrand value={null} size="lg" />
+                  <Button size="sm" variant="secondary" onClick={() => run(actions.drawCattleNow(current.id))}><Dices size={14} /> Sortear boi</Button>
+                  <input
+                    inputMode="numeric"
+                    value={cattleInput}
+                    onChange={(e) => setCattleInput(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setCattleNow(cattleInput) } }}
+                    onBlur={() => setCattleNow(cattleInput)}
+                    placeholder="ou nº"
+                    aria-label="Número do boi da fotocélula"
+                  />
+                </div>
+              ) : <CattleBrand value={current.cattle} size="lg" />}
             </div>
             <div className="op-team">
               {members.map((c, i) => (
@@ -131,7 +157,7 @@ export default function Operation() {
             <div className="op-history"><small>NESTA ETAPA</small><TrioHistory state={state} event={event} registrationId={current.registrationId} /></div>
             {situation(state, event, current) && <div className="op-lead">{situation(state, event, current)}</div>}
             <div className="op-entry">
-              <Field label="Tempo oficial">
+              <Field label="Tempo oficial" hint={limit > 0 ? (overLimit ? `Acima do limite de ${limit}s: será lançado como SAT` : `Limite da ${cat?.name}: ${limit}s`) : null} className={overLimit ? 'is-over' : ''}>
                 <div className="time-input">
                   <input ref={input} inputMode="decimal" autoComplete="off" value={t} onChange={(e) => setT(cleanTimeInput(e.target.value))} placeholder="00,000" aria-label="Tempo em segundos" />
                   <span>s</span>

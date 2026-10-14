@@ -1,107 +1,17 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, Check, Lock, MessageCircle, Search, UserPlus, X } from 'lucide-react'
-import { Button, Empty, Errors, Field, Gallop, Horseshoe } from '../../components/UI'
-import { useStore } from '../../lib/store'
-import { registrationWindow, resolveMembers, validateRegistration } from '../../lib/rules'
-import { contepRecordFor } from '../../lib/contepBase'
-import { cleanCpf, formatCpf, formatPhone, isValidCpf, maskCpf, money, normalize, whatsappLink } from '../../lib/utils'
-
-const blank = () => ({ mode: 'search', query: '', competitorId: '', name: '', cpf: '', phone: '', contepCode: '', handicap: 0 })
-
-function Slot({ index, slot, onChange, taken, creator, onCreator }) {
-  const { state } = useStore()
-  const set = (patch) => onChange({ ...slot, ...patch })
-  const picked = slot.competitorId && state.competitors.find((c) => c.id === slot.competitorId)
-  const record = slot.mode === 'new' ? contepRecordFor(state, { cpf: slot.cpf, contepCode: slot.contepCode }) : null
-  const known = slot.mode === 'new' && isValidCpf(slot.cpf) && state.competitors.find((c) => cleanCpf(c.cpf) === cleanCpf(slot.cpf))
-
-  const results = useMemo(() => {
-    const q = normalize(slot.query)
-    if (q.length < 2) return []
-    const digits = cleanCpf(slot.query)
-    return state.competitors
-      .filter((c) => !taken.includes(c.id))
-      .filter((c) => normalize(c.name).includes(q) || normalize(c.nickname).includes(q) || normalize(c.contepCode).startsWith(q) || (digits.length === 11 && cleanCpf(c.cpf) === digits))
-      .slice(0, 6)
-  }, [slot.query, state.competitors, taken])
-
-  return (
-    <article className={`slot ${picked ? 'is-picked' : ''}`}>
-      <header>
-        <span className="slot-n">0{index + 1}</span>
-        <label className="creator-pick">
-          <input type="radio" name="creator" checked={creator} onChange={onCreator} />
-          Sou eu
-        </label>
-      </header>
-
-      {picked ? (
-        <div className="picked">
-          <strong>{picked.name}</strong>
-          <span>{picked.contepCode ? `CONTEP ${picked.contepCode}` : 'Sem código CONTEP'} · {maskCpf(picked.cpf)}</span>
-          <div className="hcp-lock"><Lock size={13} /> Handicap {picked.handicap} <small>da base</small></div>
-          <button className="link" onClick={() => onChange(blank())}><X size={13} /> Trocar</button>
-        </div>
-      ) : slot.mode === 'search' ? (
-        <div className="slot-search">
-          <div className="search-input">
-            <Search size={16} />
-            <input value={slot.query} onChange={(e) => set({ query: e.target.value })} placeholder="Nome, apelido ou código CONTEP" aria-label={`Buscar competidor ${index + 1}`} />
-          </div>
-          {results.length > 0 && (
-            <ul className="search-results">
-              {results.map((c) => (
-                <li key={c.id}>
-                  <button onClick={() => onChange({ ...blank(), mode: 'picked', competitorId: c.id })}>
-                    <b>{c.name}</b>
-                    <span>{c.contepCode || 'sem código'} · Hcp {c.handicap} · {maskCpf(c.cpf)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {slot.query.length >= 2 && !results.length && <p className="muted small">Ninguém com esse nome na base.</p>}
-          <button className="link" onClick={() => set({ mode: 'new' })}><UserPlus size={14} /> Cadastrar competidor novo</button>
-        </div>
-      ) : (
-        <div className="slot-new">
-          <Field label="Nome completo"><input value={slot.name} onChange={(e) => set({ name: e.target.value })} placeholder={record?.name || 'Nome do competidor'} /></Field>
-          <Field label="CPF" hint={slot.cpf.length === 11 && !isValidCpf(slot.cpf) ? 'CPF inválido' : null}>
-            <input inputMode="numeric" value={formatCpf(slot.cpf)} onChange={(e) => set({ cpf: cleanCpf(e.target.value).slice(0, 11) })} placeholder="000.000.000-00" />
-          </Field>
-          {known ? (
-            <div className="notice notice-info small">
-              Este CPF já está cadastrado como {known.name}.{' '}
-              <button className="link" onClick={() => onChange({ ...blank(), mode: 'picked', competitorId: known.id })}>Usar cadastro</button>
-            </div>
-          ) : (
-            <>
-              <Field label="Celular com DDD" hint="É por ele que o competidor entra na área dele e aceita o convite">
-                <input inputMode="tel" value={formatPhone(slot.phone)} onChange={(e) => set({ phone: e.target.value.replace(/\D/g, '').slice(0, 11) })} placeholder="(34) 99999-9999" />
-              </Field>
-              <div className="inline-2">
-                <Field label="Código CONTEP"><input value={slot.contepCode} onChange={(e) => set({ contepCode: e.target.value.toUpperCase() })} placeholder="Opcional" /></Field>
-                {record ? (
-                  <div className="hcp-lock tall"><Lock size={13} /> Handicap {record.handicap} <small>base CONTEP</small></div>
-                ) : (
-                  <Field label="Handicap" hint="A organização confere">
-                    <input type="number" min="0" max="15" step="0.5" value={slot.handicap} onChange={(e) => set({ handicap: e.target.value })} />
-                  </Field>
-                )}
-              </div>
-            </>
-          )}
-          <button className="link" onClick={() => onChange(blank())}><Search size={13} /> Voltar para a busca</button>
-        </div>
-      )}
-    </article>
-  )
-}
+import { ArrowLeft, ArrowRight, Check, MessageCircle } from 'lucide-react'
+import { Button, Empty, Errors, Gallop, Horseshoe, Loading } from '../../components/UI'
+import TrioSlot, { blankSlot as blank, categoryNeeds, slotFilled, slotToPerson } from '../../components/TrioSlot'
+import { mode, useStore, usePublicContep, usePublicEvent } from '../../lib/store'
+import { GENDERS, registrationWindow, resolveMembers, validateRegistration } from '../../lib/rules'
+import { money, whatsappLink } from '../../lib/utils'
 
 export default function Register() {
   const { slug } = useParams()
-  const { state, actions } = useStore()
+  const { state, status, actions } = useStore()
+  usePublicEvent(slug)
+  usePublicContep()
   const event = state.events.find((e) => e.slug === slug)
   const cats = state.categories.filter((c) => c.eventId === event?.id)
   const [step, setStep] = useState(0)
@@ -112,7 +22,9 @@ export default function Register() {
   const [errors, setErrors] = useState([])
   const [doneId, setDoneId] = useState(null)
   const [invitees, setInvitees] = useState([])
+  const [busy, setBusy] = useState(false)
 
+  if (!status.ready) return <Loading />
   if (!event) return <section className="section"><Empty title="Evento não encontrado" /></section>
   const win = registrationWindow(event)
   if (!win.open && !doneId) {
@@ -123,17 +35,22 @@ export default function Register() {
     )
   }
 
-  const people = slots.map((s) => (s.competitorId ? { competitorId: s.competitorId } : { name: s.name, cpf: s.cpf, phone: s.phone, contepCode: s.contepCode, handicap: s.handicap }))
+  const people = slots.map(slotToPerson)
   const resolved = resolveMembers(state, people)
-  const cat = cats.find((c) => c.id === categoryId)
+  const cat = cats.find((c) => c.id === categoryId) || cats[0]
+  const needs = categoryNeeds(cat)
   const sum = resolved.reduce((s, p) => s + Number(p.handicap || 0), 0)
   const over = cat && sum > Number(cat.maxHandicap)
   const taken = slots.map((s) => s.competitorId).filter(Boolean)
-  const filled = slots.every((s) => s.competitorId || (s.mode === 'new' && isValidCpf(s.cpf) && s.phone.length >= 10 && (s.name || contepRecordFor(state, s))))
+  const filled = slots.every((s) => slotFilled(state, s, { counter: false, needs }))
 
   const next = () => {
     if (step === 1) {
-      const errs = validateRegistration(state, { eventId: event.id, categoryId, people, termsAccepted: true }).filter((e) => !e.includes('regulamento'))
+      // No site público em nuvem o navegador não conhece CPF nem idade de quem
+      // já é cadastrado; o servidor confere de novo no envio.
+      const errs = validateRegistration(state, { eventId: event.id, categoryId: cat?.id, people, termsAccepted: true })
+        .filter((e) => !e.includes('regulamento'))
+        .filter((e) => mode !== 'cloud' || !/^Informe (a data de nascimento|o sexo)/.test(e) || !people.some((p) => p.competitorId))
       setErrors(errs)
       if (errs.length) return
     }
@@ -142,8 +59,10 @@ export default function Register() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  const submit = () => {
-    const res = actions.createRegistration({ eventId: event.id, categoryId, people, creatorIndex: creator, termsAccepted: terms })
+  const submit = async () => {
+    setBusy(true)
+    const res = await actions.createRegistration({ eventId: event.id, categoryId: cat?.id, people, creatorIndex: creator, termsAccepted: terms })
+    setBusy(false)
     if (res.ok === false) return setErrors(res.errors)
     const creatorName = resolved[creator]?.known?.name || resolved[creator]?.name
     setInvitees(resolved.filter((_, i) => i !== creator).map((p) => ({
@@ -198,10 +117,15 @@ export default function Register() {
         <div className="cat-pick">
           {cats.map((c) => (
             <label key={c.id} className={`cat-option ${c.id === categoryId ? 'selected' : ''}`} style={{ '--cat': c.color }}>
-              <input type="radio" name="cat" checked={c.id === categoryId} onChange={() => setCategoryId(c.id)} />
+              <input type="radio" name="cat" checked={c.id === cat?.id} onChange={() => setCategoryId(c.id)} />
               <span className="cat-name">{c.name}</span>
-              <strong>Soma até {c.maxHandicap}</strong>
-              <small>{c.qualifyingRuns} passadas · {c.bestTimesCount} melhores tempos</small>
+              <strong>{Number(c.maxHandicap) === 0 ? 'Só iniciantes' : `Soma até ${c.maxHandicap}`}</strong>
+              <small>{c.qualifyingRuns} passadas · {c.bestTimesCount} melhores tempos{c.timeLimit ? ` · limite ${c.timeLimit}s` : ''}</small>
+              {(c.maxAge || c.maxAgeSum || c.gender || c.maxMemberHandicap != null) && (
+                <small className="cat-rules">
+                  {[c.maxAge && `até ${c.maxAge} anos`, c.maxAgeSum && `soma de idades até ${c.maxAgeSum}`, c.gender && GENDERS[c.gender], c.maxMemberHandicap != null && c.maxMemberHandicap !== '' && `handicap individual até ${c.maxMemberHandicap}`].filter(Boolean).join(' · ')}
+                </small>
+              )}
             </label>
           ))}
         </div>
@@ -217,9 +141,10 @@ export default function Register() {
           </div>
           <div className="slots">
             {slots.map((slot, i) => (
-              <Slot
+              <TrioSlot
                 key={i}
                 index={i}
+                needs={needs}
                 slot={slot}
                 taken={taken.filter((id) => id !== slot.competitorId)}
                 creator={creator === i}
@@ -263,7 +188,7 @@ export default function Register() {
         {step < 2 ? (
           <Button onClick={next} disabled={step === 1 && (!filled || over)}>Continuar <ArrowRight size={16} /></Button>
         ) : (
-          <Button onClick={submit} disabled={Boolean(event.terms) && !terms}>Criar trio</Button>
+          <Button onClick={submit} disabled={busy || (Boolean(event.terms) && !terms)}>{busy ? 'Enviando' : 'Criar trio'}</Button>
         )}
       </div>
     </section>

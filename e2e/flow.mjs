@@ -133,7 +133,7 @@ await step('locução', async () => {
 
 await step('backup: baixar e carregar', async () => {
   await page.goto(BASE + '/admin/evento/evt_demo/configuracoes')
-  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Baixar backup/ }).click()])
+  const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Baixar (backup|cópia)/ }).click()])
   const file = `${OUT}backup.json`
   await dl.saveAs(file)
   page.once('dialog', (d) => d.accept())

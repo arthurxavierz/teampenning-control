@@ -1,6 +1,7 @@
 import React from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import PublicLayout from './components/PublicLayout'
+import PublicGate from './components/PublicGate'
 import { AdminShell, EventAdminShell } from './components/AdminLayout'
 import Home from './pages/public/Home'
 import EventPage from './pages/public/EventPage'
@@ -22,22 +23,24 @@ import Narrator from './pages/admin/Narrator'
 import Reports from './pages/admin/Reports'
 import Audit from './pages/admin/Audit'
 import Settings from './pages/admin/Settings'
+import Team from './pages/admin/Team'
 
 export function App() {
   return (
     <Routes>
       <Route element={<PublicLayout />}>
-        <Route path="/" element={<Home />} />
-        <Route path="/eventos/:slug" element={<EventPage />} />
-        <Route path="/eventos/:slug/inscrever" element={<Register />} />
-        <Route path="/eventos/:slug/resultados" element={<Results />} />
-        <Route path="/minha-area" element={<MyArea />} />
+        <Route path="/" element={<PublicGate><Home /></PublicGate>} />
+        <Route path="/eventos/:slug" element={<PublicGate><EventPage /></PublicGate>} />
+        <Route path="/eventos/:slug/inscrever" element={<PublicGate><Register /></PublicGate>} />
+        <Route path="/eventos/:slug/resultados" element={<PublicGate><Results /></PublicGate>} />
+        <Route path="/minha-area" element={<PublicGate><MyArea /></PublicGate>} />
       </Route>
-      <Route path="/eventos/:slug/live" element={<LiveArena />} />
+      <Route path="/eventos/:slug/live" element={<PublicGate dark><LiveArena /></PublicGate>} />
       <Route path="/admin" element={<AdminShell />}>
         <Route index element={<Dashboard />} />
         <Route path="competidores" element={<Competitors />} />
         <Route path="contep" element={<Contep />} />
+        <Route path="equipe" element={<Team />} />
         <Route path="evento/:id" element={<EventAdminShell />}>
           <Route index element={<Navigate to="visao" replace />} />
           <Route path="visao" element={<Overview />} />

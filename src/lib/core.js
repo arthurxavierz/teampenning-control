@@ -165,7 +165,7 @@ export const core = {
   // Inscrições. Pelo site, o criador aceita e os outros dois recebem convite.
   // Pelo balcão (byOrganization), a organização lança o trio já aceito pelos
   // três, fora do prazo se preciso, e pode repetir o mesmo trio N vezes.
-  createRegistration(draft, ctx, { eventId, categoryId, people, creatorIndex = 0, termsAccepted, byOrganization = false, copies = 1 }) {
+  createRegistration(draft, ctx, { eventId, categoryId, people, creatorIndex = 0, termsAccepted, byOrganization = false, copies = 1, paidNow = false, paymentMethod = 'pix' }) {
     const total = Math.max(1, Math.min(10, Number(copies) || 1))
     const ids = []
     for (let n = 0; n < total; n++) {
@@ -204,6 +204,13 @@ export const core = {
           respondedAt: accepted ? at : null
         })
       })
+      // Pago no balcão: entra a baixa de cada integrante junto com o trio.
+      if (byOrganization && paidNow && Number(event.registrationPrice) > 0) {
+        resolved.forEach((c) => draft.payments.push({
+          id: uid('pay'), eventId, competitorId: c.id, amount: Number(event.registrationPrice), method: paymentMethod,
+          note: 'Pago na inscrição pelo balcão', status: 'confirmed', createdAt: at, confirmedAt: at, confirmedBy: ctx.actor()
+        }))
+      }
       reallocate(draft, eventId, byOrganization ? resolved.map((c) => c.id) : [resolved[creatorIndex]?.id])
       recomputeRegistrationStatus(draft, reg.id)
       log(draft, ctx, eventId, 'registration.create',
@@ -267,7 +274,7 @@ export const core = {
     const cpf = cleanCpf(person.cpf)
     let comp = person.competitorId ? draft.competitors.find((c) => c.id === person.competitorId) : draft.competitors.find((c) => cpf && cleanCpf(c.cpf) === cpf)
     if (!comp) {
-      if (!isValidCpf(cpf)) return fail('CPF inválido.')
+      if (cpf && !isValidCpf(cpf)) return fail('CPF inválido.')
       if (!String(person.name || '').trim()) return fail('Informe o nome do novo integrante.')
       comp = newCompetitor(draft, { ...person, cpf }, contepRecordFor(draft, { cpf, contepCode: person.contepCode }))
     }
@@ -276,6 +283,7 @@ export const core = {
     const cat = draft.categories.find((c) => c.id === reg.categoryId)
     const sum = others.reduce((s, m) => s + Number(m.handicapSnapshot || 0), 0) + Number(comp.handicap || 0)
     if (sum > Number(cat.maxHandicap)) return fail(`Com a troca, a soma do trio fica ${sum}. A categoria permite até ${cat.maxHandicap}.`)
+    fillMissing(comp, person)
     const outgoing = member.competitorId
     const outName = nameOf(draft, outgoing)
     member.competitorId = comp.id

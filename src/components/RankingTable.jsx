@@ -1,6 +1,18 @@
 import React from 'react'
 import { occurrenceOf } from '../lib/ranking'
-import { time, trioLabel } from '../lib/utils'
+import { money, time, trioLabel } from '../lib/utils'
+
+// Linha extra da pontuação: prêmio e tempo do desempate em pista.
+function ScoreExtra({ row, prizes }) {
+  const prize = prizes?.[row.registration.id]
+  if (!prize && row.runoff == null) return null
+  return (
+    <small className="score-extra">
+      {row.runoff != null && <span>desempate {row.runoff >= 9999 ? 'sem tempo' : time(row.runoff)}</span>}
+      {prize ? <span className="prize">{money(prize)}</span> : null}
+    </small>
+  )
+}
 
 function RunChips({ runs, event }) {
   return (
@@ -15,7 +27,7 @@ function RunChips({ runs, event }) {
   )
 }
 
-export function QualifyingTable({ rows, category, event, compact = false }) {
+export function QualifyingTable({ rows, category, event, compact = false, prizes }) {
   if (!rows.length) return <p className="muted">Nenhum trio confirmado nesta categoria.</p>
   const cut = Number(category.finalistsCount || 0)
   return (
@@ -33,6 +45,7 @@ export function QualifyingTable({ rows, category, event, compact = false }) {
               <span><RunChips runs={row.runs} event={event} /></span>
               <span className="rank-score">
                 {row.disqualified ? 'Desclassificado' : row.eligible ? time(row.score) : `${row.counted.length}/${category.bestTimesCount} tempos`}
+                <ScoreExtra row={row} prizes={prizes} />
               </span>
             </div>
             {cutLine && <div className="cut-line"><span>Corte da final: {cut} classificados</span></div>}
@@ -43,7 +56,7 @@ export function QualifyingTable({ rows, category, event, compact = false }) {
   )
 }
 
-export function FinalTable({ rows, category, event, leadFor }) {
+export function FinalTable({ rows, category, event, leadFor, prizes }) {
   if (!rows.length) return <p className="muted">A final ainda não foi gerada.</p>
   return (
     <div className="rank-table">
@@ -60,6 +73,7 @@ export function FinalTable({ rows, category, event, leadFor }) {
           <span><RunChips runs={row.runs} event={event} /></span>
           <span className="rank-score">
             {row.invalid ? 'Sem tempo na final' : row.complete ? time(row.total) : leadFor?.(row) ?? 'Aguardando'}
+            <ScoreExtra row={row} prizes={prizes} />
           </span>
         </div>
       ))}

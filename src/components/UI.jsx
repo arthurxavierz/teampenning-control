@@ -32,7 +32,8 @@ export function Horseshoe({ size = 18, className = '' }) {
 
 // Número do boi no formato de marca a ferro: é assim que a pista lê a boiada.
 export function CattleBrand({ value, size = 'md' }) {
-  return <span className={`cattle-brand cattle-${size}`} title={`Boi ${value}`}><small>BOI</small><b>{value}</b></span>
+  const known = value != null && value !== ''
+  return <span className={`cattle-brand cattle-${size} ${known ? '' : 'is-unknown'}`} title={known ? `Boi ${value}` : 'Boi a sortear'}><small>BOI</small><b>{known ? value : '?'}</b></span>
 }
 
 export function Button({ as: Tag = 'button', variant = 'primary', size, className = '', children, ...props }) {
@@ -59,6 +60,7 @@ const STATUS = {
   done: 'Lançada',
   qualifying: 'Classificatória',
   final: 'Final',
+  runoff: 'Desempate',
   homologated: 'Homologado'
 }
 export const statusLabel = (s) => STATUS[s] || s
@@ -148,9 +150,12 @@ export function Modal({ title, eyebrow, onClose, children, footer, wide = false 
 export function ReasonDialog({ title, description, confirmLabel = 'Confirmar', danger, onConfirm, onClose, children }) {
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState([])
-  const submit = (e) => {
+  const [busy, setBusy] = useState(false)
+  const submit = async (e) => {
     e.preventDefault()
-    const res = onConfirm(reason)
+    setBusy(true)
+    const res = await onConfirm(reason)
+    setBusy(false)
     if (res?.ok === false) setErrors(res.errors)
     else onClose()
   }
@@ -165,7 +170,7 @@ export function ReasonDialog({ title, description, confirmLabel = 'Confirmar', d
         <Errors list={errors} />
         <div className="row-end">
           <Button variant="ghost" onClick={onClose}>Voltar</Button>
-          <Button type="submit" variant={danger ? 'danger' : 'primary'}>{confirmLabel}</Button>
+          <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={busy}>{confirmLabel}</Button>
         </div>
       </form>
     </Modal>
@@ -193,17 +198,31 @@ export function ToastProvider({ children }) {
 
 export const useToast = () => useContext(ToastContext)
 
-// Executa uma ação da store e avisa o resultado. Devolve true quando deu certo.
+// Executa uma ação da store e avisa o resultado. Devolve true quando deu
+// certo. Com ação assíncrona (modo nuvem), devolve uma Promise do mesmo valor.
 export function useRun() {
   const toast = useToast()
   return useCallback((result, okText) => {
-    if (result?.ok === false) {
-      toast(result.errors.join(' '), 'error')
-      return false
+    const handle = (res) => {
+      if (res?.ok === false) {
+        if (res.errors?.length) toast(res.errors.join(' '), 'error')
+        return false
+      }
+      if (okText) toast(okText)
+      return true
     }
-    if (okText) toast(okText)
-    return true
+    return typeof result?.then === 'function' ? result.then(handle) : handle(result)
   }, [toast])
+}
+
+// Tela de espera enquanto os dados chegam do banco.
+export function Loading({ label = 'Carregando dados', dark = false }) {
+  return (
+    <div className={`loading-screen ${dark ? 'is-dark' : ''}`} role="status">
+      <Gallop />
+      <span>{label}</span>
+    </div>
+  )
 }
 
 export function Tabs({ items, value, onChange }) {

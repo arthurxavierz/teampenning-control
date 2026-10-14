@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import { Copy, LogOut } from 'lucide-react'
 import { Button, CattleBrand, Empty, Errors, Field, Gallop, Horseshoe, StatusBadge, Tabs, useRun } from '../../components/UI'
-import { useStore } from '../../lib/store'
+import { mode, useStore } from '../../lib/store'
 import { buildPixPayload } from '../../lib/pix'
 import { competitorAccount } from '../../lib/finance'
 import { membersOf } from '../../lib/rules'
@@ -16,9 +16,12 @@ function Login() {
   const [cpf, setCpf] = useState('')
   const [phone, setPhone] = useState('')
   const [errors, setErrors] = useState([])
-  const submit = (e) => {
+  const [busy, setBusy] = useState(false)
+  const submit = async (e) => {
     e.preventDefault()
-    const res = actions.loginCompetitor(cpf, phone)
+    setBusy(true)
+    const res = await actions.loginCompetitor(cpf, phone)
+    setBusy(false)
     if (res.ok === false) setErrors(res.errors)
   }
   return (
@@ -32,13 +35,13 @@ function Login() {
           <Field label="CPF"><input inputMode="numeric" value={formatCpf(cpf)} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" autoComplete="off" /></Field>
           <Field label="Final do telefone"><input inputMode="numeric" maxLength={4} value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} placeholder="0000" /></Field>
           <Errors list={errors} />
-          <Button type="submit" size="lg">Entrar</Button>
+          <Button type="submit" size="lg" disabled={busy}>{busy ? 'Entrando' : 'Entrar'}</Button>
         </form>
-        <div className="demo-hint">
+        {mode === 'local' && <div className="demo-hint">
           <b>Demonstração</b>
           <span>CPF {formatCpf(DEMO_LOGIN.cpf)} com final {DEMO_LOGIN.phone.slice(-4)}</span>
           <button className="link" onClick={() => { setCpf(DEMO_LOGIN.cpf); setPhone(DEMO_LOGIN.phone.slice(-4)) }}>Preencher</button>
-        </div>
+        </div>}
       </div>
     </section>
   )

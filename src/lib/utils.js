@@ -134,3 +134,7 @@ export function countdown(dateIso, today = todayIso()) {
   if (days === 1) return 'É amanhã'
   return `Faltam ${days} dias`
 }
+
+// CPF parcial para identificar um competidor em tela. No site público o
+// banco já entrega mascarado (cpfMasked) e o número completo nunca chega.
+export const cpfHint = (c) => (c?.cpf ? maskCpf(c.cpf) : c?.cpfMasked || '')
