@@ -138,3 +138,6 @@ export function countdown(dateIso, today = todayIso()) {
 // CPF parcial para identificar um competidor em tela. No site público o
 // banco já entrega mascarado (cpfMasked) e o número completo nunca chega.
 export const cpfHint = (c) => (c?.cpf ? maskCpf(c.cpf) : c?.cpfMasked || '')
+
+// Fase da passada para exibir: "Rodada 2", "Final" ou "Desempate".
+export const runStageLabel = (run) => (run?.stage === 'final' ? (run.round > 1 ? `Final, rodada ${run.round}` : 'Final') : run?.stage === 'runoff' ? 'Desempate' : `Rodada ${run?.round}`)

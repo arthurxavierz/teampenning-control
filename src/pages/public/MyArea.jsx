@@ -9,7 +9,7 @@ import { competitorAccount } from '../../lib/finance'
 import { membersOf } from '../../lib/rules'
 import { effectiveTime, qualifyingRanking } from '../../lib/ranking'
 import { DEMO_LOGIN } from '../../lib/seed'
-import { cleanCpf, dateBr, dateTime, formatCpf, money, time, trioLabel } from '../../lib/utils'
+import { cleanCpf, dateBr, dateTime, formatCpf, money, runStageLabel, time, trioLabel } from '../../lib/utils'
 
 function Login() {
   const { actions } = useStore()
@@ -206,7 +206,7 @@ export default function MyArea() {
                   return (
                     <div key={r.id} className={`order-row ${r.status === 'done' ? 'is-done' : ''}`}>
                       <span className="order-n">{r.number}</span>
-                      <span className="order-trio"><b>{trioOf(r.registrationId)}</b><small>{catOf(r.categoryId)?.name} · {r.stage === 'final' ? 'Final' : `Rodada ${r.round}`}</small></span>
+                      <span className="order-trio"><b>{trioOf(r.registrationId)}</b><small>{catOf(r.categoryId)?.name} · {runStageLabel(r)}</small></span>
                       <CattleBrand value={r.cattle} size="sm" />
                       <span className="order-time">{r.status === 'done' ? (t == null ? r.occurrence || 'Sem tempo' : time(t)) : 'Aguardando'}</span>
                     </div>

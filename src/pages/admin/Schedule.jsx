@@ -5,7 +5,7 @@ import { Button, CattleBrand, Empty, Field, PageHeader, ReasonDialog, StatusBadg
 import { useStore } from '../../lib/store'
 import { analyzeSchedule, eventRuns, memberIdsOf } from '../../lib/schedule'
 import { downloadCsv } from '../../lib/export'
-import { dateTime, trioLabel } from '../../lib/utils'
+import { dateTime, runStageLabel, trioLabel } from '../../lib/utils'
 
 export default function Schedule() {
   const { event } = useOutletContext()
@@ -33,7 +33,7 @@ export default function Schedule() {
 
   const exportCsv = () => downloadCsv(`montagem-${event.slug}.csv`, [
     ['Passada', 'Etapa', 'Rodada', 'Categoria', 'Boi', 'Competidor 1', 'Competidor 2', 'Competidor 3'],
-    ...runs.map((r) => [r.number, r.stage === 'final' ? 'Final' : 'Classificatória', r.round, cats.find((c) => c.id === r.categoryId)?.name, r.cattle, ...memberIdsOf(state, r.registrationId).map((id) => comp(id)?.name)])
+    ...runs.map((r) => [r.number, r.stage === 'final' ? 'Final' : r.stage === 'runoff' ? 'Desempate' : 'Classificatória', r.round, cats.find((c) => c.id === r.categoryId)?.name, r.cattle, ...memberIdsOf(state, r.registrationId).map((id) => comp(id)?.name)])
   ])
 
   return (
@@ -87,17 +87,18 @@ export default function Schedule() {
             const cat = cats.find((c) => c.id === r.categoryId)
             const warn = conflictByRun[r.id]
             return (
-              <div key={r.id} className={`sched-row ${r.status === 'done' ? 'is-done' : ''} ${warn ? 'is-warn' : ''} ${r.stage === 'final' ? 'is-final' : ''}`}>
+              <div key={r.id} className={`sched-row ${r.status === 'done' ? 'is-done' : ''} ${warn ? 'is-warn' : ''} ${r.stage !== 'qualifying' ? 'is-final' : ''}`}>
                 <span className="sched-n">{r.number}</span>
                 <span className="sched-trio">
                   <b>{names(r.registrationId)}</b>
                   <small>
-                    <i style={{ background: cat?.color }} /> {cat?.name} · {r.stage === 'final' ? 'Final' : `Rodada ${r.round}`}
+                    <i style={{ background: cat?.color }} /> {cat?.name} · {runStageLabel(r)}
                     {warn && <em> · {warn.map((w) => `${comp(w.competitorId)?.nickname} com ${w.gap} de intervalo`).join(', ')}</em>}
                   </small>
                 </span>
                 {r.status === 'pending' ? (
-                  <select className="cattle-select no-print" value={r.cattle} aria-label="Boi" onChange={(e) => { const v = e.target.value; adjust(`Trocar boi da passada ${r.number}`, (reason) => actions.setCattle(r.id, v, reason)) }}>
+                  <select className="cattle-select no-print" value={r.cattle ?? ''} aria-label="Boi" onChange={(e) => { const v = e.target.value; adjust(`Trocar boi da passada ${r.number}`, (reason) => actions.setCattle(r.id, v, reason)) }}>
+                    {r.cattle == null && <option value="">A sortear</option>}
                     {cattleOptions.map((n) => <option key={n} value={n}>Boi {n}</option>)}
                   </select>
                 ) : null}

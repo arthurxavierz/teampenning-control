@@ -4,12 +4,13 @@ import { CattleBrand, Empty, PageHeader } from '../../components/UI'
 import { useStore } from '../../lib/store'
 import { effectiveTime, finalRanking, occurrenceOf, qualifyingRanking, timeToLead, timeToQualify } from '../../lib/ranking'
 import { eventRuns, memberIdsOf } from '../../lib/schedule'
-import { time, trioLabel } from '../../lib/utils'
+import { runStageLabel, time, trioLabel } from '../../lib/utils'
 
 // O que o locutor precisa ler em voz alta sem procurar: nomes completos,
 // histórico do trio nesta etapa, posição e o que falta para a final.
 export function situation(state, event, run) {
   if (!run) return null
+  if (run.stage === 'runoff') return 'Desempate em pista: o menor tempo fica com a melhor posição entre os empatados'
   if (run.stage === 'final') {
     const lead = timeToLead(state, event.id, run.categoryId, run.registrationId)
     if (lead == null) return null
@@ -51,11 +52,11 @@ export default function Narrator() {
     return <div className="page"><PageHeader eyebrow="Locução" title="Mesa do locutor" /><Empty title="A montagem ainda não foi sorteada" action={<Link className="btn btn-primary" to={`/admin/evento/${event.id}/montagem`}>Ir para a montagem</Link>} /></div>
   }
 
-  const rows = cat ? (current.stage === 'final' ? finalRanking(state, event.id, cat.id) : qualifyingRanking(state, event.id, cat.id)) : []
+  const rows = cat ? ((current.stage === 'final' || current.runoffFor === 'final') ? finalRanking(state, event.id, cat.id) : qualifyingRanking(state, event.id, cat.id)) : []
   const mine = current && rows.find((r) => r.registration.id === current.registrationId)
   const lastT = last && effectiveTime(last, event)
   const lastCat = last && state.categories.find((c) => c.id === last.categoryId)
-  const lastRow = last && (last.stage === 'final' ? finalRanking(state, event.id, last.categoryId) : qualifyingRanking(state, event.id, last.categoryId)).find((r) => r.registration.id === last.registrationId)
+  const lastRow = last && ((last.stage === 'final' || last.runoffFor === 'final') ? finalRanking(state, event.id, last.categoryId) : qualifyingRanking(state, event.id, last.categoryId)).find((r) => r.registration.id === last.registrationId)
 
   return (
     <div className="page narrator">
@@ -64,7 +65,7 @@ export default function Narrator() {
       {current ? (
         <section className="nar-now">
           <div className="nar-top">
-            <span>PASSADA {current.number} · {cat?.name} · {current.stage === 'final' ? `FINAL, RODADA ${current.round}` : `RODADA ${current.round}`}</span>
+            <span>PASSADA {current.number} · {cat?.name} · {runStageLabel(current).toUpperCase()}</span>
             <CattleBrand value={current.cattle} size="lg" />
           </div>
           <div className="nar-names">

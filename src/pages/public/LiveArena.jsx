@@ -5,7 +5,7 @@ import { CattleBrand, Gallop, Horseshoe } from '../../components/UI'
 import { useStore } from '../../lib/store'
 import { effectiveTime, finalRanking, occurrenceOf, qualifyingRanking, timeToLead, timeToQualify } from '../../lib/ranking'
 import { eventRuns, memberIdsOf } from '../../lib/schedule'
-import { time, trioLabel } from '../../lib/utils'
+import { runStageLabel, time, trioLabel } from '../../lib/utils'
 
 function useClock() {
   const [now, setNow] = useState(new Date())
@@ -110,7 +110,7 @@ export default function LiveArena() {
               <small>NA PISTA · PASSADA {current.number}</small>
               <h2>{names(current.registrationId)}</h2>
               <div className="now-meta">
-                <span>{catName(current.categoryId)} · {current.stage === 'final' ? 'Final' : `Rodada ${current.round}`}</span>
+                <span>{catName(current.categoryId)} · {runStageLabel(current)}</span>
                 <CattleBrand value={current.cattle} />
               </div>
               {qualify?.status === 'need' && (

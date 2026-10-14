@@ -8,7 +8,7 @@ import { membersOf } from '../../lib/rules'
 import { finalRanking, qualifyingRanking } from '../../lib/ranking'
 import { eventRuns, memberIdsOf } from '../../lib/schedule'
 import { decimal, downloadCsv } from '../../lib/export'
-import { dateTime, formatCpf, formatPhone, money, whatsappLink } from '../../lib/utils'
+import { dateTime, formatCpf, formatPhone, money, runStageLabel, whatsappLink } from '../../lib/utils'
 
 export default function Reports() {
   const { event } = useOutletContext()
@@ -40,7 +40,7 @@ export default function Reports() {
     ])],
     ['Montagem e tempos', 'Ordem de passadas com boi, tempo, ocorrência e quem lançou.', Shuffle, () => downloadCsv(file('passadas'), [
       ['Passada', 'Etapa', 'Categoria', 'Boi', 'Trio', 'Tempo', 'Ocorrência', 'Lançado por', 'Lançado em'],
-      ...eventRuns(state, event.id).map((r) => [r.number, r.stage === 'final' ? 'Final' : `Rodada ${r.round}`, catName(r.categoryId), r.cattle, memberIdsOf(state, r.registrationId).map((id) => comp(id)?.name).join(', '), decimal(r.time), r.occurrence || '', r.recordedBy || '', dateTime(r.recordedAt)])
+      ...eventRuns(state, event.id).map((r) => [r.number, runStageLabel(r), catName(r.categoryId), r.cattle ?? '', memberIdsOf(state, r.registrationId).map((id) => comp(id)?.name).join(', '), decimal(r.time), r.occurrence || '', r.recordedBy || '', dateTime(r.recordedAt)])
     ])],
     ['Resultados', 'Classificatória e final de todas as categorias.', Trophy, () => downloadCsv(file('resultados'), [
       ['Categoria', 'Etapa', 'Posição', 'Trio', 'Soma'],

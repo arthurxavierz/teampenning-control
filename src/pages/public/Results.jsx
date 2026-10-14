@@ -6,7 +6,7 @@ import { FinalTable, QualifyingTable } from '../../components/RankingTable'
 import { useStore } from '../../lib/store'
 import { finalRanking, qualifyingRanking } from '../../lib/ranking'
 import { eventRuns, memberIdsOf } from '../../lib/schedule'
-import { dateTime, time, trioLabel } from '../../lib/utils'
+import { dateTime, runStageLabel, time, trioLabel } from '../../lib/utils'
 
 export default function Results() {
   const { slug } = useParams()
@@ -49,7 +49,7 @@ export default function Results() {
               return (
                 <div key={r.id} className={`order-row ${r.status === 'done' ? 'is-done' : ''}`}>
                   <span className="order-n">{r.number}</span>
-                  <span className="order-trio"><b>{names(r.registrationId)}</b><small>{c?.name} · {r.stage === 'final' ? 'Final' : `Rodada ${r.round}`}</small></span>
+                  <span className="order-trio"><b>{names(r.registrationId)}</b><small>{c?.name} · {runStageLabel(r)}</small></span>
                   <CattleBrand value={r.cattle} size="sm" />
                   <span className="order-time">{r.status === 'done' ? (r.occurrence ? r.occurrence : time(r.time)) : ''}</span>
                 </div>
