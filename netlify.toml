@@ -5,6 +5,16 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Banco de produção. URL e chave publicável são públicas por natureza (vão
+  # no navegador; quem protege os dados é o RLS). A chave secreta NÃO fica
+  # aqui: vai em Site settings > Environment variables, como
+  # SUPABASE_SERVICE_ROLE_KEY, só para a função do portal.
+  VITE_DATA_MODE = "supabase"
+  VITE_SUPABASE_URL = "https://pqtxzpnbpfsjswhqvixu.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "sb_publishable_o2HKd27K7bLOst32KYrX9Q_6H-6SSvW"
+  VITE_ORG_SLUG = "ctm"
+  SUPABASE_URL = "https://pqtxzpnbpfsjswhqvixu.supabase.co"
+  ORG_SLUG = "ctm"
 
 # Funções do servidor (portal do competidor). O esbuild junta o código de
 # src/lib que elas importam.
