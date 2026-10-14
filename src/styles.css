@@ -1025,3 +1025,7 @@ button.trow:hover, label.trow:hover { background: rgba(255, 255, 255, .02); }
 .tie-panel { display: grid; gap: 8px; padding: 12px 14px; margin-bottom: 10px; border-radius: 12px; border: 1px dashed rgba(216, 175, 88, .5); background: rgba(216, 175, 88, .06); font-size: 13px; }
 .tie-panel p { display: flex; gap: 8px; align-items: center; }
 .tie-line { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.legacy-preview { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 13px; }
+.legacy-preview div { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; }
+.legacy-preview b { font-family: var(--mono); font-weight: 600; color: var(--muted); }
+.legacy-preview em { color: var(--gold); font-weight: 700; font-size: 11px; }

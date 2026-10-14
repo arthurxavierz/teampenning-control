@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, ExternalLink, Plus, Search, UserX, Users } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, FileSpreadsheet, Plus, Search, UserX, Users } from 'lucide-react'
 import CounterRegistration from './CounterRegistration'
+import LegacyImport from './LegacyImport'
 import TrioSlot, { blankSlot, categoryNeeds, slotToPerson } from '../../components/TrioSlot'
 import { Button, Dots, Empty, Field, PageHeader, ReasonDialog, StatusBadge, Tabs, useRun } from '../../components/UI'
 import { useStore } from '../../lib/store'
@@ -38,6 +39,7 @@ export default function Registrations() {
   const [cancelId, setCancelId] = useState(null)
   const [substitute, setSubstitute] = useState(null)
   const [counter, setCounter] = useState(false)
+  const [legacy, setLegacy] = useState(false)
   const cats = state.categories.filter((c) => c.eventId === event.id)
   const all = state.registrations.filter((r) => r.eventId === event.id).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const number = Object.fromEntries(all.map((r, i) => [r.id, i + 1]))
@@ -60,7 +62,8 @@ export default function Registrations() {
         description="Cada trio depende do aceite e do pagamento dos três integrantes. Só trios confirmados entram na montagem."
         actions={(
           <>
-            <a className="btn btn-secondary" href={`/eventos/${event.slug}/inscrever`} target="_blank" rel="noreferrer"><ExternalLink size={15} /> Formulário público</a>
+            <a className="btn btn-ghost" href={`/eventos/${event.slug}/inscrever`} target="_blank" rel="noreferrer"><ExternalLink size={15} /> Formulário público</a>
+            <Button variant="secondary" onClick={() => setLegacy(true)}><FileSpreadsheet size={15} /> Importar planilha</Button>
             <Button onClick={() => setCounter(true)}><Plus size={15} /> Lançar trio</Button>
           </>
         )}
@@ -148,6 +151,7 @@ export default function Registrations() {
         />
       )}
       {substitute && <Substitute member={substitute} onClose={() => setSubstitute(null)} />}
+      {legacy && <LegacyImport event={event} onClose={() => setLegacy(false)} />}
       {counter && <CounterRegistration event={event} onClose={() => setCounter(false)} onDone={(res) => run(res, res.registrationIds?.length > 1 ? `${res.registrationIds.length} inscrições lançadas.` : 'Trio lançado.')} />}
     </div>
   )

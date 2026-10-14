@@ -1,10 +1,11 @@
 import { contepRecordFor } from './contepBase.js'
-import { defaultCategories, defaultEventSettings } from './defaults.js'
+import { CATEGORY_PRESETS, categoryFromPreset, defaultCategories, defaultEventSettings } from './defaults.js'
+import { matchCompetitor, titleCase } from './legacy.js'
 import { allocatePayments } from './finance.js'
 import { buildFinalRuns, buildRunoffRuns, qualifyingComplete } from './ranking.js'
 import { isActiveRegistration, membersOf, recomputeRegistrationStatus, resolveMembers, validateRegistration } from './rules.js'
 import { buildSchedule, drawCattle, eventRuns, nextRunNumber, usedCattle } from './schedule.js'
-import { cleanCpf, cleanPhone, isValidCpf, newSeed, nowIso, parseTime, seededRandom, slugify, uid } from './utils.js'
+import { cleanCpf, cleanPhone, isValidCpf, newSeed, normalize, nowIso, parseTime, seededRandom, slugify, uid } from './utils.js'
 
 // Regras de escrita do sistema. Cada ação recebe um rascunho do estado, altera
 // e devolve { ok: false, errors } quando algo não pode ser feito. O navegador
@@ -153,6 +154,8 @@ export const core = {
       if (patch.cpf && draft.competitors.some((x) => x.id !== id && cleanCpf(x.cpf) === patch.cpf)) return fail('Já existe outro competidor com este CPF.')
     }
     if (patch.phone !== undefined) patch.phone = cleanPhone(patch.phone)
+    if (patch.contepCode !== undefined) patch.contepCode = String(patch.contepCode || '').trim().toUpperCase()
+    if (patch.handicap !== undefined) patch.handicap = Number(patch.handicap) || 0
     const before = { handicap: c.handicap, contepCode: c.contepCode, name: c.name, phone: c.phone }
     if (patch.handicap !== undefined && Number(patch.handicap) !== Number(c.handicap)) {
       if (!String(reason || '').trim()) return fail('Informe o motivo da alteração de handicap.')
@@ -503,6 +506,59 @@ export const core = {
     if (value) event.homologated[categoryId] = { at: nowIso(), by: ctx.actor() }
     else delete event.homologated[categoryId]
     log(draft, ctx, eventId, value ? 'result.homologate' : 'result.reopen', `Resultado da ${cat.name} ${value ? 'homologado' : `reaberto para correção. Motivo: ${reason}`}.`)
+  },
+
+  // Importa um plano montado a partir da planilha antiga (ver legacy.js):
+  // categorias que faltam, competidores pelo nome, trios já aceitos e o que
+  // a planilha marca como pago. Trio que fere regra fica de fora e é listado.
+  importLegacy(draft, ctx, eventId, plan, { applySettings = true, importPayments = true } = {}) {
+    const event = findEvent(draft, eventId)
+    if (!event) return fail('Evento não encontrado.')
+    if (applySettings) {
+      event.limits = { ...event.limits, ...Object.fromEntries(Object.entries(plan.limits || {}).filter(([, v]) => v > 0)) }
+      if (plan.cattleMax > 0) event.cattle = { ...event.cattle, max: Number(plan.cattleMax) }
+      if (plan.price > 0 && !Number(event.registrationPrice)) event.registrationPrice = plan.price
+    }
+    const categoriesCreated = []
+    plan.missingCategories.forEach((name) => {
+      if (draft.categories.some((c) => c.eventId === eventId && normalize(c.name) === normalize(name))) return
+      const preset = CATEGORY_PRESETS.find((p) => normalize(p.name) === normalize(name))
+      const digits = Number(String(name).match(/\d+/)?.[0])
+      const base = preset || { name, maxHandicap: /inician/i.test(name) ? 0 : Number.isFinite(digits) ? digits : 11, finalistsCount: 10, color: '#D8AF58' }
+      draft.categories.push({ ...categoryFromPreset(eventId, { ...base, name: String(name).toUpperCase() }), sortOrder: draft.categories.filter((c) => c.eventId === eventId).length })
+      categoriesCreated.push(name)
+    })
+    const catId = (name) => draft.categories.find((c) => c.eventId === eventId && normalize(c.name) === normalize(name))?.id
+    const idFor = (name) => {
+      const known = matchCompetitor(draft, name)
+      if (known) return known.id
+      const pretty = titleCase(name)
+      return newCompetitor(draft, { name: pretty, nickname: pretty }, null).id
+    }
+    let created = 0
+    const failed = []
+    const quiet = { actor: ctx.actor }
+    plan.trios.forEach((t) => {
+      if (t.issues?.length) { failed.push({ line: t.line, error: t.issues.join(', ') }); return }
+      const res = core.createRegistration(draft, quiet, { eventId, categoryId: catId(t.category), people: t.members.map((m) => ({ competitorId: idFor(m.name) })), byOrganization: true })
+      if (res?.ok === false) failed.push({ line: t.line, error: res.errors[0] })
+      else created++
+    })
+    // Os lançamentos de cada trio já foram para a auditoria um a um; o resumo
+    // abaixo fecha a importação.
+    let paid = 0
+    if (importPayments) {
+      plan.payments.forEach((p) => {
+        const c = matchCompetitor(draft, p.name)
+        if (!c) return
+        const at = nowIso()
+        draft.payments.push({ id: uid('pay'), eventId, competitorId: c.id, amount: Number(p.paid), method: 'planilha', note: 'Importado da planilha', status: 'confirmed', createdAt: at, confirmedAt: at, confirmedBy: ctx.actor() })
+        allocatePayments(draft, eventId, c.id)
+        paid++
+      })
+    }
+    log(draft, ctx, eventId, 'legacy.import', `Planilha importada: ${created} trios, ${failed.length} de fora, ${categoriesCreated.length} categorias criadas, ${paid} pagamentos.`, { failed })
+    return { created, failed, categoriesCreated, paid }
   },
 
   // Base CONTEP
