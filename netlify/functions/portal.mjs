@@ -6,16 +6,23 @@ import { runPortal } from '../../src/lib/portal.js'
 // Roda no servidor com a chave service_role, que nunca vai para o navegador.
 // As regras são as mesmas do painel (src/lib/core.js), via src/lib/portal.js.
 
-const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-const orgSlug = process.env.ORG_SLUG || process.env.VITE_ORG_SLUG || ''
-const secret = process.env.PORTAL_SECRET || serviceKey
+// As variáveis de [build.environment] do netlify.toml só existem no build. Em
+// execução, a função enxerga só as variáveis cadastradas no painel do
+// Netlify. Por isso a URL do banco e a organização (públicas) têm um padrão
+// aqui; a chave secreta vem obrigatoriamente do painel.
+const DEFAULT_URL = 'https://pqtxzpnbpfsjswhqvixu.supabase.co'
+const DEFAULT_ORG = 'ctm'
+const env = (name) => globalThis.Netlify?.env?.get?.(name) || process.env[name] || ''
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 
 export default async (req) => {
+  const url = env('SUPABASE_URL') || env('VITE_SUPABASE_URL') || DEFAULT_URL
+  const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY')
+  const orgSlug = env('ORG_SLUG') || env('VITE_ORG_SLUG') || DEFAULT_ORG
+  const secret = env('PORTAL_SECRET') || serviceKey
   if (req.method !== 'POST') return json(405, { ok: false, errors: ['Use POST.'] })
-  if (!url || !serviceKey) return json(500, { ok: false, errors: ['Servidor sem configuração do banco (SUPABASE_SERVICE_ROLE_KEY).'] })
+  if (!serviceKey) return json(500, { ok: false, errors: ['Servidor sem a chave do banco (SUPABASE_SERVICE_ROLE_KEY no Netlify).'] })
   let body
   try { body = await req.json() } catch { return json(400, { ok: false, errors: ['Requisição inválida.'] }) }
 

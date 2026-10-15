@@ -32,7 +32,7 @@ Em **Project Settings > API Keys**:
 
 1. Novo site a partir do repositório. O `netlify.toml` já define build, pasta e funções.
 2. Em `netlify.toml`, troque `VITE_SUPABASE_URL`, `SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (a publicável), `VITE_ORG_SLUG` e `ORG_SLUG` pelos do projeto novo. Ou defina esses nomes nas variáveis do site.
-3. Em **Project configuration > Environment variables**, crie `SUPABASE_SERVICE_ROLE_KEY` com a **Secret key**. Só a função do portal usa.
+3. Em **Project configuration > Environment variables**, crie `SUPABASE_SERVICE_ROLE_KEY` com a **Secret key**, e também `SUPABASE_URL` e `ORG_SLUG`. A função do portal não enxerga o `[build.environment]` do `netlify.toml` (ele só vale no build); sem essas duas, ela usa os padrões de `netlify/functions/portal.mjs`, que apontam para a instalação da CTM.
 4. **Deploys > Trigger deploy > Deploy project**, para as funções lerem a variável nova.
 
 ### 4. Domínio
