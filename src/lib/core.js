@@ -102,6 +102,23 @@ export const core = {
     log(draft, ctx, id, 'event.update', summary)
   },
 
+  // Apaga o evento com categorias, inscrições, pagamentos e passadas. Os
+  // competidores ficam, porque pertencem à organização. Pede o nome digitado
+  // como confirmação.
+  deleteEvent(draft, ctx, id, confirmName) {
+    const event = findEvent(draft, id)
+    if (!event) return fail('Evento não encontrado.')
+    if (String(confirmName || '').trim() !== event.name) return fail('Digite o nome do evento exatamente como está para confirmar.')
+    const regIds = new Set(draft.registrations.filter((r) => r.eventId === id).map((r) => r.id))
+    draft.events = draft.events.filter((e) => e.id !== id)
+    draft.categories = draft.categories.filter((c) => c.eventId !== id)
+    draft.registrations = draft.registrations.filter((r) => r.eventId !== id)
+    draft.registrationMembers = draft.registrationMembers.filter((m) => !regIds.has(m.registrationId))
+    draft.payments = draft.payments.filter((p) => p.eventId !== id)
+    draft.runs = draft.runs.filter((r) => r.eventId !== id)
+    log(draft, ctx, null, 'event.delete', `Evento ${event.name} excluído, com ${regIds.size} inscrições.`)
+  },
+
   setActiveEvent(draft, ctx, id) {
     draft.events.forEach((e) => { e.active = e.id === id })
     log(draft, ctx, id, 'event.activate', 'Evento definido como ativo.')

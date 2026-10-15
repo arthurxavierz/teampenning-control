@@ -268,6 +268,18 @@ export default function Settings() {
             {mode === 'local' && <Button variant="danger" onClick={() => { if (confirm('Apagar todas as alterações e restaurar a demonstração?')) { actions.reset(); location.assign('/admin') } }}><RotateCcw size={15} /> Restaurar demonstração</Button>}
           </div>
         </section>
+
+        <section className="panel stack danger-zone">
+          <h3>Excluir evento</h3>
+          <p className="muted">Apaga este evento com categorias, inscrições, pagamentos e passadas. Os competidores continuam no cadastro. Não dá para desfazer: baixe uma cópia antes.</p>
+          <div className="row-start">
+            <Button variant="danger" onClick={() => {
+              const typed = window.prompt(`Para excluir, digite o nome do evento:\n${event.name}`)
+              if (typed == null) return
+              if (run(actions.deleteEvent(event.id, typed), 'Evento excluído.')) location.assign('/admin')
+            }}><Trash2 size={15} /> Excluir evento</Button>
+          </div>
+        </section>
       </div>
 
       {editing && <CategoryEditor eventId={event.id} category={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}

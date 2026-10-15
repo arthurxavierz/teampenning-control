@@ -225,3 +225,18 @@ describe('regras novas do circuito', () => {
     expect(prize.c).toBe(table.places[2].amount)
   })
 })
+
+describe('exclusão de evento', () => {
+  beforeEach(() => actions.reset())
+  it('pede o nome e apaga tudo do evento, menos os competidores', () => {
+    const before = getState().competitors.length
+    expect(actions.deleteEvent(EVT, 'outro nome').ok).toBe(false)
+    const name = getState().events.find((e) => e.id === EVT).name
+    expect(actions.deleteEvent(EVT, name).ok).toBe(true)
+    const s = getState()
+    expect(s.events.some((e) => e.id === EVT)).toBe(false)
+    expect(s.registrations.some((r) => r.eventId === EVT)).toBe(false)
+    expect(s.payments.some((p) => p.eventId === EVT)).toBe(false)
+    expect(s.competitors.length).toBe(before)
+  })
+})

@@ -1,6 +1,6 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, Copy, Plus, Star } from 'lucide-react'
+import { ArrowRight, Copy, Plus, Star, Upload } from 'lucide-react'
 import { Button, Errors, Field, Metric, Modal, PageHeader, StatusBadge, useRun } from '../../components/UI'
 import { useStore } from '../../lib/store'
 import { eventMetrics } from '../../lib/finance'
@@ -63,9 +63,19 @@ export default function Dashboard() {
   const { state, actions } = useStore()
   const run = useRun()
   const [creating, setCreating] = useState(false)
+  const backupInput = useRef(null)
   const active = state.events.find((e) => e.active)
   const m = active ? eventMetrics(state, active.id) : null
   const events = [...state.events].sort((a, b) => b.date.localeCompare(a.date))
+
+  // Carrega uma cópia (JSON do próprio sistema). No banco, soma o que estiver
+  // nela sem apagar nada; serve para trazer dados de teste ou de outra máquina.
+  const loadBackup = async (file) => {
+    if (!file) return
+    if (!window.confirm(`Carregar ${file.name}? Os dados da cópia serão somados aos que já existem.`)) return
+    const res = actions.importBackup(await file.text())
+    if (run(res, `Cópia carregada: ${res.events ?? 0} eventos. Enviando ao banco.`)) window.scrollTo({ top: 0 })
+  }
 
   return (
     <div className="page">
@@ -73,7 +83,13 @@ export default function Dashboard() {
         eyebrow="Organização"
         title="Central de eventos"
         description="Cada etapa tem inscrições, financeiro, montagem, pista e resultados próprios. O evento ativo é o que aparece em destaque para o público."
-        actions={<Button onClick={() => setCreating(true)}><Plus size={16} /> Novo evento</Button>}
+        actions={(
+          <>
+            <Button variant="ghost" onClick={() => backupInput.current?.click()}><Upload size={15} /> Carregar cópia</Button>
+            <input ref={backupInput} type="file" accept=".json,application/json" hidden onChange={(e) => { loadBackup(e.target.files?.[0]); e.target.value = '' }} />
+            <Button onClick={() => setCreating(true)}><Plus size={16} /> Novo evento</Button>
+          </>
+        )}
       />
 
       {active && (
