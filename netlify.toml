@@ -1,4 +1,4 @@
-# Publicação do Achilles Team Penning no Netlify.
+# Publicação do JHM Team Penning no Netlify.
 [build]
   command = "npm run build"
   publish = "dist"

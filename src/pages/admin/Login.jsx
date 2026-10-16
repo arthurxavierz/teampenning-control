@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { LogIn } from 'lucide-react'
-import { Button, Errors, Field, Gallop } from '../../components/UI'
+import { Button, Errors, Field } from '../../components/UI'
 import { useStore } from '../../lib/store'
+import { BRAND } from '../../lib/brand'
 
 // Entrada da organização (modo nuvem). Quem entra precisa estar na equipe,
 // cadastrada pelo e-mail em Equipe ou direto no banco.
@@ -24,8 +25,7 @@ export default function AdminLogin() {
   return (
     <div className="admin admin-login">
       <form className="admin-login-card" onSubmit={submit}>
-        <div className="side-brand"><img src="/wordmark.png" alt="Achilles" /><small>TEAM PENNING</small></div>
-        <Gallop />
+        <img className="login-logo" src={BRAND.logoDark} alt={BRAND.name} />
         <div>
           <span className="eyebrow">Organização</span>
           <h1>Entrar no painel</h1>

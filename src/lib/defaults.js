@@ -50,7 +50,7 @@ export function defaultEventSettings() {
       rotationSeconds: 10,
       intermission: false,
       intermissionMessage: 'Intervalo. A prova volta em instantes.',
-      sponsors: ['Achilles Media'],
+      sponsors: [],
       accent: '#D8AF58'
     },
     homologated: {}

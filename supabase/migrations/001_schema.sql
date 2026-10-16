@@ -1,4 +1,4 @@
--- Achilles Team Penning: banco de produção.
+-- JHM Team Penning: banco de produção.
 --
 -- O app guarda o estado em coleções (eventos, categorias, competidores,
 -- inscrições, integrantes, pagamentos, passadas, auditoria, base CONTEP). Cada

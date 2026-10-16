@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Maximize } from 'lucide-react'
 import { CattleBrand, Gallop, Horseshoe } from '../../components/UI'
+import { BRAND } from '../../lib/brand'
 import { useStore } from '../../lib/store'
 import { effectiveTime, finalRanking, occurrenceOf, qualifyingRanking, timeToLead, timeToQualify } from '../../lib/ranking'
 import { eventRuns, memberIdsOf } from '../../lib/schedule'
@@ -68,7 +69,7 @@ export default function LiveArena() {
   return (
     <div className={`arena arena-${mode}`} style={{ '--accent': arena.accent || '#D8AF58' }}>
       <header className="arena-top">
-        <Link to={`/eventos/${event.slug}`} className="arena-brand"><img src="/wordmark.png" alt="Achilles" /><small>TEAM PENNING LIVE</small></Link>
+        <Link to={`/eventos/${event.slug}`} className="arena-brand"><img src={BRAND.markDark} alt={BRAND.name} /><small>TEAM PENNING LIVE</small></Link>
         <span className="arena-event">{event.name}</span>
         <span className="arena-clock">{clock}</span>
         <button className="arena-fs" onClick={fullscreen} aria-label="Tela cheia"><Maximize size={16} /></button>

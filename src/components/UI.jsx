@@ -1,11 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { X } from 'lucide-react'
+import { BRAND } from '../lib/brand'
 
 export function Wordmark({ small = 'TEAM PENNING', to = '/', dark = false }) {
   return (
-    <Link to={to} className={`wordmark ${dark ? 'wordmark-dark' : ''}`} aria-label="Achilles Team Penning">
-      <img src="/wordmark.png" alt="Achilles" />
+    <Link to={to} className={`wordmark ${dark ? 'wordmark-dark' : ''}`} aria-label={BRAND.title}>
+      <img src={dark ? BRAND.markDark : BRAND.mark} alt={BRAND.name} />
       <small>{small}</small>
     </Link>
   )

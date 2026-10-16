@@ -8,6 +8,7 @@ import { mode, useStore } from '../lib/store'
 import { Empty, Horseshoe, Loading, StatusBadge } from './UI'
 import { eventMetrics } from '../lib/finance'
 import AdminLogin from '../pages/admin/Login'
+import { BRAND } from '../lib/brand'
 
 // Situação da gravação no banco. Na pista, mostra se os tempos já subiram.
 function SyncPill({ sync }) {
@@ -71,7 +72,7 @@ function AdminFrame() {
       {open && <div className="side-backdrop" onClick={() => setOpen(false)} aria-hidden="true" />}
       <aside className={`side ${open ? 'open' : ''}`}>
         <button className="side-close" onClick={() => setOpen(false)} aria-label="Fechar menu"><X size={20} /></button>
-        <Link to="/admin" className="side-brand"><img src="/wordmark.png" alt="Achilles" /><small>TEAM PENNING</small></Link>
+        <Link to="/admin" className="side-brand"><img src={BRAND.markDark} alt={BRAND.name} /><small>TEAM PENNING</small></Link>
 
         <nav className="side-group">
           <NavLink to="/admin" end><CalendarDays size={17} /><span>Central de eventos</span></NavLink>

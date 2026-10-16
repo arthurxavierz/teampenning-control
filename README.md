@@ -1,6 +1,6 @@
-# Achilles Team Penning
+# JHM Team Penning
 
-Sistema de gestão de Team Penning da Achilles Media. Cobre o evento inteiro: inscrição por trio, financeiro por CPF, montagem sorteada, operação de pista, ranking, finais, homologação, locução e Arena Live no telão.
+Sistema de gestão de Team Penning de J. Humberto Melo (JHM). Cobre o evento inteiro: inscrição por trio, financeiro por CPF, montagem sorteada, operação de pista, ranking, finais, homologação, locução e Arena Live no telão.
 
 Feito a partir da planilha de controle usada nas etapas CTM HSF (`TEAM PENNING CTM HSF 2026.xlsm`, versão 3.2), que pode ser importada direto para um evento.
 
@@ -178,10 +178,10 @@ e2e/flow.mjs           teste de ponta a ponta no navegador
 
 ## Identidade visual
 
-Mesma família do Achilles Content: Anton nos títulos, Manrope no texto, ouro `#D8AF58` sobre preto e branco quente.
+Marca do organizador: o símbolo JHM (J. Humberto Melo), tirado da própria planilha de controle, com versões para fundo claro e escuro em `public/brand/`. Nome e logo ficam em `src/lib/brand.js`, para trocar numa instalação para outro organizador. Anton nos títulos, Manrope no texto, ouro `#D8AF58` sobre preto e branco quente.
 
 - Área pública clara e editorial, com navegação flutuante e grade de fundo.
-- Organização em tema escuro com barra lateral, como a área do cliente do Achilles Content.
+- Organização em tema escuro com barra lateral.
 - Arena em alto contraste para telão.
 
 Os detalhes equestres vêm de "The Horse in Motion" (Eadweard Muybridge, 1878, domínio público), recortado em silhuetas que galopam em CSS. O projeto de Muybridge nasceu justamente para cronometrar um cavalo. Completam o conjunto a corda como divisória, a cerca no rodapé, a ferradura como marcador e o número do boi no formato de marca a ferro.

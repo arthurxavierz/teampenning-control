@@ -158,7 +158,7 @@ Object.assign(actions, {
 
   // Backup completo em JSON. No modo nuvem serve como cópia de segurança.
   exportBackup() {
-    return JSON.stringify({ app: 'achilles-team-penning', exportedAt: nowIso(), state }, null, 2)
+    return JSON.stringify({ app: 'team-penning', exportedAt: nowIso(), state }, null, 2)
   },
 
   // Local: substitui tudo. Nuvem: soma ao banco (nada é apagado), útil para
@@ -167,7 +167,8 @@ Object.assign(actions, {
     let data
     try { data = JSON.parse(text) } catch { return fail('O arquivo não é um backup válido.') }
     const next = data?.state
-    if (data?.app !== 'achilles-team-penning' || !next) return fail('Este arquivo não é um backup do Team Penning.')
+    // 'achilles-team-penning' é o nome usado pelas cópias antigas.
+    if (!['team-penning', 'achilles-team-penning'].includes(data?.app) || !next) return fail('Este arquivo não é um backup do Team Penning.')
     const required = ['events', 'categories', 'competitors', 'registrations', 'registrationMembers', 'payments', 'runs', 'auditLog', 'contep']
     if (required.some((k) => !next[k])) return fail('O backup está incompleto.')
     next.contep.records = (next.contep.records || []).map((r) => (r.id ? r : { ...r, id: uid('ctp') }))

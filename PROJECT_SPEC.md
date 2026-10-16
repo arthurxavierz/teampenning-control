@@ -215,7 +215,7 @@ Direção aprovada para este projeto:
 - textos e subtítulos em Montserrat
 - linguagem esportiva, editorial e profissional
 - alto contraste
-- identidade Achilles com preto, branco e dourado quando aplicável
+- identidade do organizador (marca JHM, J. Humberto Melo) sobre preto, branco quente e dourado
 - evitar estética genérica de produto de IA
 - evitar emojis
 - evitar travessões na copy visível

@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 import { useStore } from '../lib/store'
 import { Gallop, Horseshoe, Wordmark } from './UI'
+import { BRAND } from '../lib/brand'
 
 export default function PublicLayout() {
   const { state } = useStore()
@@ -43,8 +44,8 @@ export default function PublicLayout() {
         <div className="fence" aria-hidden="true" />
         <div className="footer-inner">
           <div className="footer-brand">
-            <Wordmark />
-            <p>Gestão de Team Penning da inscrição ao último tempo. Um produto Achilles Media.</p>
+            <Wordmark dark />
+            <p>Gestão de Team Penning da inscrição ao último tempo. {BRAND.name}.</p>
           </div>
           <div className="footer-horse">
             <Gallop />
@@ -54,7 +55,7 @@ export default function PublicLayout() {
             <Link to="/">Eventos</Link>
             <Link to="/minha-area">Minha área</Link>
             <Link to="/admin">Área da organização</Link>
-            <span><Horseshoe size={14} /> Achilles Media</span>
+            <span><Horseshoe size={14} /> {BRAND.name}</span>
           </div>
         </div>
       </footer>
