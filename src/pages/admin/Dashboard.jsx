@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRight, Copy, Plus, Star, Upload } from 'lucide-react'
 import { Button, Errors, Field, Metric, Modal, PageHeader, StatusBadge, useRun } from '../../components/UI'
 import { useStore } from '../../lib/store'
+import { BackupReminder } from './DataSafety'
 import { eventMetrics } from '../../lib/finance'
 import { addDays, dateBr, money, todayIso } from '../../lib/utils'
 
@@ -91,6 +92,8 @@ export default function Dashboard() {
           </>
         )}
       />
+
+      <BackupReminder />
 
       {active && (
         <>

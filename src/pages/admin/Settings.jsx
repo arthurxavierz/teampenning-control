@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
-import { Download, Pencil, Plus, RotateCcw, Save, Trash2, Upload } from 'lucide-react'
+import React, { useState } from 'react'
+import { Link, useOutletContext } from 'react-router-dom'
+import { Pencil, Plus, Save, Trash2 } from 'lucide-react'
 import { Button, Errors, Field, Modal, PageHeader, useRun } from '../../components/UI'
 import { mode, useStore } from '../../lib/store'
 import { CATEGORY_PRESETS, CATTLE_MODES, OCCURRENCE_EFFECTS, PRIZE_MODES, TIEBREAKS, categoryFromPreset } from '../../lib/defaults'
@@ -108,7 +108,6 @@ export default function Settings() {
   const run = useRun()
   const [f, setF] = useState(() => structuredClone(event))
   const [editing, setEditing] = useState(null)
-  const backupInput = useRef(null)
   const cats = state.categories.filter((c) => c.eventId === event.id)
   const set = (k, v) => setF((s) => ({ ...s, [k]: v }))
   const setIn = (group, k, v) => setF((s) => ({ ...s, [group]: { ...s[group], [k]: v } }))
@@ -243,30 +242,9 @@ export default function Settings() {
           ))}
         </section>
 
-        <section className="panel stack danger-zone">
-          <h3>{mode === 'cloud' ? 'Cópia de segurança' : 'Dados do protótipo'}</h3>
-          <p className="muted">
-            {mode === 'cloud'
-              ? 'Os dados ficam no banco. Baixe uma cópia completa em JSON antes de mudanças grandes. Carregar uma cópia soma ao banco o que estiver nela, sem apagar nada.'
-              : 'Este protótipo guarda tudo no navegador. Para testar em outro computador, baixe o backup aqui e carregue lá. Restaurar a demonstração apaga as alterações.'}
-          </p>
-          <div className="row-start">
-            <Button variant="secondary" onClick={() => {
-              const blob = new Blob([actions.exportBackup()], { type: 'application/json' })
-              const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `team-penning-backup-${new Date().toISOString().slice(0, 10)}.json` })
-              a.click()
-              setTimeout(() => URL.revokeObjectURL(a.href), 1000)
-            }}><Download size={15} /> Baixar cópia</Button>
-            <Button variant="secondary" onClick={() => backupInput.current?.click()}><Upload size={15} /> Carregar cópia</Button>
-            <input ref={backupInput} type="file" accept=".json,application/json" hidden onChange={async (e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (!file) return
-              if (!confirm(mode === 'cloud' ? 'Somar ao banco tudo o que está nesta cópia?' : 'Substituir todos os dados deste navegador pelo backup?')) return
-              if (run(actions.importBackup(await file.text()), 'Cópia carregada.')) location.assign('/admin')
-            }} />
-            {mode === 'local' && <Button variant="danger" onClick={() => { if (confirm('Apagar todas as alterações e restaurar a demonstração?')) { actions.reset(); location.assign('/admin') } }}><RotateCcw size={15} /> Restaurar demonstração</Button>}
-          </div>
+        <section className="panel stack">
+          <h3>Cópia de segurança</h3>
+          <p className="muted">As cópias de segurança e a restauração ficam em <Link className="link" to="/admin/seguranca">Segurança dos dados</Link>, no menu da organização.</p>
         </section>
 
         <section className="panel stack danger-zone">

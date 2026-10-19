@@ -158,6 +158,7 @@ function flushRemote() {
       const def = TABLE_BY_NAME[table]
       if (table === 'organizations') {
         state.contep = { ...state.contep, year: row.contep_year ?? state.contep.year, importedAt: row.contep_imported_at ?? state.contep.importedAt }
+        state.organizations = state.organizations.map((o) => (o.id === row.id ? { ...o, settings: row.settings || {} } : o))
         changed = true
         return
       }

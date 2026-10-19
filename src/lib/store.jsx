@@ -194,6 +194,26 @@ Object.assign(actions, {
     })
   },
 
+  // Registra que a organização salvou uma cópia de segurança. Fica em
+  // organizations.settings, ao lado da data do acesso automático diário.
+  async markBackup() {
+    const stamp = { lastBackupAt: nowIso(), lastBackupBy: session.admin?.displayName || session.admin?.email || session.operator || 'Organização' }
+    let settings = { ...(state.organizations[0]?.settings || {}), ...stamp }
+    if (mode === 'cloud') {
+      if (!session.admin) return fail('Entre na área da organização.')
+      const id = session.admin.organizationId
+      const { data, error } = await supabase.from('organizations').select('settings').eq('id', id).single()
+      if (error) return fail(error.message)
+      settings = { ...(data.settings || {}), ...stamp }
+      const res = await supabase.from('organizations').update({ settings }).eq('id', id)
+      if (res.error) return fail(res.error.message)
+    }
+    state = { ...state, organizations: state.organizations.map((o, i) => (i === 0 ? { ...o, settings } : o)) }
+    persist()
+    emit()
+    return { ok: true }
+  },
+
   setOperator(name) {
     setSession({ operator: name.trim() })
     safeSet(localStorage, OPERATOR_KEY, session.operator)

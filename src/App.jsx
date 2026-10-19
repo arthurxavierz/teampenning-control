@@ -24,6 +24,7 @@ import Reports from './pages/admin/Reports'
 import Audit from './pages/admin/Audit'
 import Settings from './pages/admin/Settings'
 import Team from './pages/admin/Team'
+import DataSafety from './pages/admin/DataSafety'
 
 export function App() {
   return (
@@ -41,6 +42,7 @@ export function App() {
         <Route path="competidores" element={<Competitors />} />
         <Route path="contep" element={<Contep />} />
         <Route path="equipe" element={<Team />} />
+        <Route path="seguranca" element={<DataSafety />} />
         <Route path="evento/:id" element={<EventAdminShell />}>
           <Route index element={<Navigate to="visao" replace />} />
           <Route path="visao" element={<Overview />} />

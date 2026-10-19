@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   CalendarDays, Database, ExternalLink, FileBarChart, History, LayoutDashboard, Menu, MonitorPlay,
-  Settings, Shuffle, Timer, Trophy, Users, Wallet, X, ClipboardList, Mic, ShieldCheck, LogOut, RefreshCw
+  Settings, Shuffle, Timer, Trophy, Users, Wallet, X, ClipboardList, Mic, ShieldCheck, LogOut, RefreshCw, HardDriveDownload
 } from 'lucide-react'
 import { mode, useStore } from '../lib/store'
 import { Empty, Horseshoe, Loading, StatusBadge } from './UI'
 import { eventMetrics } from '../lib/finance'
 import AdminLogin from '../pages/admin/Login'
 import { BRAND } from '../lib/brand'
+import { backupOverdue } from '../lib/backup'
 
 // Situação da gravação no banco. Na pista, mostra se os tempos já subiram.
 function SyncPill({ sync }) {
@@ -79,6 +80,7 @@ function AdminFrame() {
           <NavLink to="/admin/competidores"><Users size={17} /><span>Competidores</span></NavLink>
           <NavLink to="/admin/contep"><Database size={17} /><span>Base CONTEP</span></NavLink>
           {mode === 'cloud' && <NavLink to="/admin/equipe"><ShieldCheck size={17} /><span>Equipe</span></NavLink>}
+          <NavLink to="/admin/seguranca"><HardDriveDownload size={17} /><span>Segurança dos dados</span>{backupOverdue(state.organizations[0]?.settings) ? <em title="Cópia de segurança atrasada">!</em> : null}</NavLink>
         </nav>
 
         {current && (

@@ -1,37 +1,26 @@
-import { createClient } from '@supabase/supabase-js'
 import { applyOp, diffState, loadOrgState } from '../../src/lib/cloud/schema.js'
 import { runPortal } from '../../src/lib/portal.js'
+import { env, findOrg, serverClient, serverConfig } from '../lib/db.mjs'
 
 // Portal do competidor: inscrição pelo site, convites e "já paguei".
 // Roda no servidor com a chave service_role, que nunca vai para o navegador.
 // As regras são as mesmas do painel (src/lib/core.js), via src/lib/portal.js.
 
-// As variáveis de [build.environment] do netlify.toml só existem no build. Em
-// execução, a função enxerga só as variáveis cadastradas no painel do
-// Netlify. Por isso a URL do banco e a organização (públicas) têm um padrão
-// aqui; a chave secreta vem obrigatoriamente do painel.
-const DEFAULT_URL = 'https://pqtxzpnbpfsjswhqvixu.supabase.co'
-const DEFAULT_ORG = 'ctm'
-const env = (name) => globalThis.Netlify?.env?.get?.(name) || process.env[name] || ''
-
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 
 export default async (req) => {
-  const url = env('SUPABASE_URL') || env('VITE_SUPABASE_URL') || DEFAULT_URL
-  const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY')
-  const orgSlug = env('ORG_SLUG') || env('VITE_ORG_SLUG') || DEFAULT_ORG
-  const secret = env('PORTAL_SECRET') || serviceKey
+  const cfg = serverConfig()
+  const secret = env('PORTAL_SECRET') || cfg.serviceKey
   if (req.method !== 'POST') return json(405, { ok: false, errors: ['Use POST.'] })
-  if (!serviceKey) return json(500, { ok: false, errors: ['Servidor sem a chave do banco (SUPABASE_SERVICE_ROLE_KEY no Netlify).'] })
+  if (!cfg.serviceKey) return json(500, { ok: false, errors: ['Servidor sem a chave do banco (SUPABASE_SERVICE_ROLE_KEY no Netlify).'] })
   let body
   try { body = await req.json() } catch { return json(400, { ok: false, errors: ['Requisição inválida.'] }) }
 
-  const client = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  const client = serverClient(cfg)
   try {
-    const orgQuery = client.from('organizations').select('id').order('created_at').limit(1)
-    const { data: orgs, error: orgError } = orgSlug ? await orgQuery.eq('slug', orgSlug) : await orgQuery
-    if (orgError || !orgs?.length) return json(500, { ok: false, errors: ['Organização não encontrada no banco.'] })
-    const orgId = orgs[0].id
+    const org = await findOrg(client, cfg.orgSlug)
+    if (!org) return json(500, { ok: false, errors: ['Organização não encontrada no banco.'] })
+    const orgId = org.id
 
     let recentFailures = 0
     if (body?.op === 'login') {
